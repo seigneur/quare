@@ -1,4 +1,4 @@
-import { createWalletClient, createPublicClient, http, parseAbi } from "viem";
+import { createWalletClient, createPublicClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
 import { readFileSync } from "fs";
@@ -40,6 +40,9 @@ async function main() {
   console.log("Tx hash:", hash);
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
   console.log("Contract deployed at:", receipt.contractAddress);
+  console.log("");
+  console.log("After deploying: call POST /admin/records to store salt+iv in KV for each record.");
+  console.log("Salt and IV are no longer stored on-chain — the Worker reads them exclusively from Cloudflare KV.");
 }
 
 main().catch(console.error);
