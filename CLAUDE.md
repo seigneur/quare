@@ -31,11 +31,20 @@ npm run cf-typegen  # regenerate Cloudflare bindings types
 node_modules/.bin/tsc --noEmit  # type-check (use local tsc, not npx tsc)
 ```
 
+### Backend tests (`services/backend/`)
+```bash
+# Requires Foundry (anvil + forge) — install once with:
+# curl -L https://foundry.paradigm.xyz | bash && ~/.foundry/bin/foundryup
+PATH="/home/nanoclaw/.foundry/bin:$PATH" node_modules/.bin/vitest run
+```
+
 ### Contract (`services/contract/`)
 ```bash
-# compile first:
-solc --bin FileRegistry.sol -o .
-# deploy:
+# Forge tests (unit):
+PATH="/home/nanoclaw/.foundry/bin:$PATH" forge test -v
+
+# Compile + deploy:
+PATH="/home/nanoclaw/.foundry/bin:$PATH" forge build
 PRIVATE_KEY=0x... RPC_URL=https://mainnet.base.org npx ts-node deploy.ts
 ```
 
@@ -55,6 +64,15 @@ The worker is the single coordinator between three storage layers:
 
 **Request routing** (`src/index.ts`): pathname-prefix dispatch — `/admin/*`, `/assets/*`, `/batch/*`, `/pin/verify`, `/files/:cid`. The `scheduled` handler fires every 5 minutes, lists all keys in `BATCH_QUEUE`, extracts unique orgIds, and calls `processBatch` for each.
 
+**Route handlers:**
+- `src/routes/admin.ts` — `POST /admin/records` (store salt+iv), `POST /admin/records/:id/revoke`, `GET /admin/records/:id`
+- `src/routes/assets.ts` — `GET/POST /assets/:orgId`, `GET/PATCH/DELETE /assets/:orgId/:recordId`, `GET /assets/:orgId/:recordId/proof`
+- `src/routes/batch.ts` — `POST /batch/:orgId/process`, `GET /batch/:orgId/pending`, `GET /batch/:orgId/checkpoints`
+- `src/routes/pin.ts` — `POST /pin/verify`
+- `src/routes/files.ts` — `GET /files/:cid`
+
+**Asset shape** (`src/services/assetStore.ts` — `AssetMeta`): `recordId`, `orgId`, `name`, `status` (Deployed/In use/Maintenance/Spare/Disposed), `location`, `assignee`, `category`, `fields` (Record), `files` (array with name/cid/encrypted/size), `createdAt`, `updatedAt`, `ipfsCID?`.
+
 **KV key namespacing:**
 - `{orgId}:asset:{recordId}` — asset JSON in ASSETS
 - `{orgId}:batch:pending` — JSON array of dirty recordIds in BATCH_QUEUE
@@ -63,7 +81,7 @@ The worker is the single coordinator between three storage layers:
 
 **Batch flow** (`src/services/batchProcessor.ts`):
 1. Reads pending dirty recordIds from BATCH_QUEUE
-2. Lists all org assets; uploads any missing IPFS snapshots
+2. Lists all org assets; re-uploads IPFS snapshot for any asset missing a CID **or** in the dirty set (ensures PATCH changes are reflected)
 3. Builds a SHA-256 binary Merkle tree over all org assets (`src/services/merkle.ts`)
 4. Stores per-asset sibling proofs back into ASSETS KV
 5. Uploads a full tree snapshot to IPFS → `metaCID`
@@ -103,3 +121,20 @@ Two pages:
 ### Admin auth pattern
 
 `verifyAdminKey` (exported from `src/routes/admin.ts`) does a timing-safe string comparison against `env.ADMIN_KEY`. All write-capable and sensitive routes (`DELETE /assets`, all `/batch/*`, all `/admin/*`) require the `X-Admin-Key` request header.
+
+## Testing
+
+### Backend (Vitest + Anvil)
+
+Tests live in `services/backend/test/`. The global setup (`test/globalSetup.ts`) spawns a local Anvil chain (port 8545, chain ID 8453 to match viem's `base`), runs `forge build` to compile the contract, deploys it, and exposes `TEST_CONTRACT_ADDRESS` / `TEST_RPC_URL` / `TEST_DEPLOYER_KEY` to all tests.
+
+- `test/helpers/kv.ts` — `MemoryKV` in-process KV stub
+- `test/helpers/env.ts` — `makeEnv()`, `req()`, `adminReq()` request builders
+- `test/helpers/fetchMock.ts` — stubs `fetch` for `https://up.web3.storage`, returns incrementing fake CIDs (`bafytest0001`, …); real RPC calls pass through
+- `test/routes/admin.test.ts` — auth, store/revoke/inspect record secrets
+- `test/routes/assets.test.ts` — CRUD, dirty-queue marking, proof storage
+- `test/routes/batch.test.ts` — route tests + full e2e `processBatch` (IPFS → Merkle → on-chain root via live Anvil)
+
+### Contract (Forge)
+
+`services/contract/test/FileRegistry.t.sol` — 25 tests covering ownership, `updateRoot`, checkpoint history, Merkle `verify` (1/2/3-leaf, wrong leaf/org), and all three events. Uses `forge-std` (submodule at `lib/forge-std`).
