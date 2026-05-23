@@ -8,8 +8,22 @@ CONTRACT_ADDRESS = ""
 CHAIN_RPC_URL = ""
 ALLOWED_ORIGINS = "*"
 ADMIN_KEY = ""
+W3UP_TOKEN = ""
+
+[triggers]
+crons = ["*/5 * * * *"]
 
 [[kv_namespaces]]
 binding = "RECORD_SECRETS"
+id = ""
+preview_id = ""
+
+[[kv_namespaces]]
+binding = "ASSETS"
+id = ""
+preview_id = ""
+
+[[kv_namespaces]]
+binding = "BATCH_QUEUE"
 id = ""
 preview_id = ""

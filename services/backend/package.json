@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:forge": "forge test --root ../contract -vv"
   },
   "dependencies": {
     "viem": "^2"
@@ -13,6 +16,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4",
     "typescript": "^5",
+    "vitest": "^4.1.7",
     "wrangler": "^3"
   }
 }

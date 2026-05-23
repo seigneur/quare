@@ -1,8 +1,8 @@
 export function corsHeaders(allowedOrigins: string): HeadersInit {
   return {
     "Access-Control-Allow-Origin": allowedOrigins,
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, X-Admin-Key",
   };
 }
 

@@ -20,7 +20,7 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-function verifyAdminKey(request: Request, adminKey: string): boolean {
+export function verifyAdminKey(request: Request, adminKey: string): boolean {
   const provided = request.headers.get("X-Admin-Key") ?? "";
   return timingSafeEqual(provided, adminKey);
 }

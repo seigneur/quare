@@ -30,7 +30,7 @@ const publicClient = createPublicClient({
 const bytecode = readFileSync("./FileRegistry.bin", "utf-8").trim() as `0x${string}`;
 
 async function main() {
-  console.log("Deploying FileRegistry from:", account.address);
+  console.log("Deploying FileRegistry (Merkle) from:", account.address);
 
   const hash = await walletClient.deployContract({
     abi: [],
@@ -41,8 +41,19 @@ async function main() {
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
   console.log("Contract deployed at:", receipt.contractAddress);
   console.log("");
-  console.log("After deploying: call POST /admin/records to store salt+iv in KV for each record.");
-  console.log("Salt and IV are no longer stored on-chain — the Worker reads them exclusively from Cloudflare KV.");
+  console.log("Note: constructor calls orgs[msg.sender] = true, so the deployer");
+  console.log("address is already approved to call updateRoot.");
+  console.log("");
+  console.log("Post-deploy steps:");
+  console.log("  1. Update CONTRACT_ADDRESS in wrangler.toml");
+  console.log("  2. wrangler secret put DEPLOYER_PRIVATE_KEY");
+  console.log("  3. wrangler secret put ADMIN_KEY");
+  console.log("  4. wrangler secret put W3UP_TOKEN");
+  console.log("  5. wrangler kv:namespace create ASSETS");
+  console.log("     → copy the id into wrangler.toml [kv_namespaces] binding ASSETS");
+  console.log("  6. wrangler kv:namespace create BATCH_QUEUE");
+  console.log("     → copy the id into wrangler.toml [kv_namespaces] binding BATCH_QUEUE");
+  console.log("  7. wrangler deploy");
 }
 
 main().catch(console.error);
