@@ -7,3 +7,9 @@ compatibility_flags = ["nodejs_compat"]
 CONTRACT_ADDRESS = ""
 CHAIN_RPC_URL = ""
 ALLOWED_ORIGINS = "*"
+ADMIN_KEY = ""
+
+[[kv_namespaces]]
+binding = "RECORD_SECRETS"
+id = ""
+preview_id = ""
