@@ -7,6 +7,7 @@ export interface ChainRecord {
   salt: string;
   iv: string;
   orgId: string;
+  revoked: boolean;
 }
 
 const ABI = [
@@ -24,9 +25,17 @@ const ABI = [
           { name: "salt", type: "string" },
           { name: "iv", type: "string" },
           { name: "orgId", type: "string" },
+          { name: "revoked", type: "bool" },
         ],
       },
     ],
+  },
+  {
+    name: "revokeRecord",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "id", type: "bytes32" }],
+    outputs: [],
   },
 ] as const;
 
