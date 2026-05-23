@@ -31,6 +31,10 @@ contract FileRegistry {
   address public owner;
   mapping(address => bool) public orgs;
 
+  // First approved address to write an orgId claims permanent ownership of it.
+  // Subsequent updateRoot calls for that orgId are restricted to that address.
+  mapping(string => address) public orgOwner;
+
   mapping(string => Checkpoint[]) private orgCheckpoints;
   mapping(string => bytes32) public currentRoot;
 
@@ -65,6 +69,7 @@ contract FileRegistry {
   }
 
   function revokeOrg(address org) external onlyOwner {
+    require(org != owner, "Cannot revoke owner");
     orgs[org] = false;
     emit OrgRevoked(org);
   }
@@ -75,6 +80,12 @@ contract FileRegistry {
     string calldata metaCID,
     uint256 assetCount
   ) external onlyApproved {
+    address existing = orgOwner[orgId];
+    if (existing == address(0)) {
+      orgOwner[orgId] = msg.sender;
+    } else {
+      require(existing == msg.sender, "Not org owner");
+    }
     currentRoot[orgId] = newRoot;
     orgCheckpoints[orgId].push(Checkpoint({
       root: newRoot,
@@ -100,6 +111,7 @@ contract FileRegistry {
 
   function getCheckpoint(string calldata orgId, uint256 index)
     external view returns (Checkpoint memory) {
+    require(index < orgCheckpoints[orgId].length, "Index out of bounds");
     return orgCheckpoints[orgId][index];
   }
 
