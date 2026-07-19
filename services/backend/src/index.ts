@@ -5,6 +5,9 @@ import { handleAdmin } from "./routes/admin.js";
 import { handleAssets } from "./routes/assets.js";
 import { handleBatch } from "./routes/batch.js";
 import { processBatch } from "./services/batchProcessor.js";
+import { handleMedications } from "./routes/medications.js";
+import { handleDoses } from "./routes/doses.js";
+import { handleRecipients } from "./routes/recipients.js";
 
 export interface Env {
   CONTRACT_ADDRESS: string;
@@ -26,6 +29,26 @@ export default {
     const url = new URL(request.url);
     const { pathname } = url;
     const { method } = request;
+
+    // GET /api/health
+    if (method === "GET" && pathname === "/api/health") {
+      return Response.json({ status: "ok" }, { headers: corsHeaders(env.ALLOWED_ORIGINS) });
+    }
+
+    // /api/medications/* routes
+    if (pathname.startsWith("/api/medications")) {
+      return handleMedications(request, env, pathname);
+    }
+
+    // /api/doses/* routes
+    if (pathname.startsWith("/api/doses")) {
+      return handleDoses(request, env, pathname);
+    }
+
+    // /api/recipients routes
+    if (pathname.startsWith("/api/recipients")) {
+      return handleRecipients(request, env, pathname);
+    }
 
     // /admin/* routes
     if (pathname.startsWith("/admin/")) {

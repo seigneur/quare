@@ -1,34 +1,29 @@
 # Deployment Guide
 
-Full deployment: contract → backend worker → web frontend. Do them in order.
+Two independent deployment targets:
 
-## Prerequisites
+| Layer | Where | Command |
+|-------|-------|---------|
+| Frontend (static) | GitHub Pages | `npm run export` → `apps/web/out/` |
+| Backend API | Cloudflare Workers | `npm run deploy` from `services/backend/` |
 
-- Node.js 18+
-- [Foundry](https://getfoundry.sh) — `curl -L https://foundry.paradigm.xyz | bash && foundryup`
-- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/) — `npm install -g wrangler` + `wrangler login`
-- A funded wallet on Base mainnet (for contract deploy gas)
-- A [web3.storage](https://web3.storage) account — get a `W3UP_TOKEN`
-- A Cloudflare account with Workers enabled
+Full stack deployment order: **contract → backend worker → web frontend**.
 
 ---
 
 ## 1. Deploy the contract (`services/contract/`)
 
-### Compile
+### Prerequisites
+
+- [Foundry](https://getfoundry.sh): `curl -L https://foundry.paradigm.xyz | bash && foundryup`
+- A funded wallet on Base mainnet
+
+### Compile and test
 
 ```bash
 cd services/contract
-PATH="/home/nanoclaw/.foundry/bin:$PATH" forge build
-```
-
-The ABI and bytecode land in `out/FileRegistry.sol/FileRegistry.json`.
-
-### Run tests before deploying
-
-```bash
-PATH="/home/nanoclaw/.foundry/bin:$PATH" forge test -vv
-# Expected: 25 passed (FileRegistry.t.sol) + 3 failed exploits (fixes confirmed)
+PATH="$HOME/.foundry/bin:$PATH" forge build
+PATH="$HOME/.foundry/bin:$PATH" forge test -vv
 ```
 
 ### Deploy to Base mainnet
@@ -39,24 +34,16 @@ RPC_URL=https://mainnet.base.org \
 npx ts-node deploy.ts
 ```
 
-`deploy.ts` reads bytecode from `out/FileRegistry.sol/FileRegistry.json` via forge's artifact format. Copy the printed contract address — you'll need it in step 2.
-
-> The deployer address is auto-approved as an org in the constructor. Use the same
-> private key as `DEPLOYER_PRIVATE_KEY` in the worker secrets below.
-
-### (Optional) Verify on Basescan
-
-```bash
-PATH="/home/nanoclaw/.foundry/bin:$PATH" forge verify-contract \
-  <CONTRACT_ADDRESS> \
-  FileRegistry \
-  --chain base \
-  --etherscan-api-key <BASESCAN_API_KEY>
-```
+Copy the printed contract address — you need it in the next step.
 
 ---
 
-## 2. Deploy the backend worker (`services/backend/`)
+## 2. Deploy the backend Worker (`services/backend/`)
+
+### Prerequisites
+
+- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/): `npm install -g wrangler` + `wrangler login`
+- A Cloudflare account with Workers enabled
 
 ### Create KV namespaces
 
@@ -70,108 +57,132 @@ wrangler kv:namespace create RECORD_SECRETS
 wrangler kv:namespace create RECORD_SECRETS --preview
 ```
 
-Each command prints an `id`. Fill them into `wrangler.toml`:
+Fill the returned IDs into `wrangler.toml`.
 
-```toml
-[[kv_namespaces]]
-binding = "RECORD_SECRETS"
-id = "<id from above>"
-preview_id = "<preview id>"
-
-[[kv_namespaces]]
-binding = "ASSETS"
-id = "<id>"
-preview_id = "<preview id>"
-
-[[kv_namespaces]]
-binding = "BATCH_QUEUE"
-id = "<id>"
-preview_id = "<preview id>"
-```
-
-### Set vars in `wrangler.toml`
+### Configure `wrangler.toml`
 
 ```toml
 [vars]
 CONTRACT_ADDRESS = "0x<deployed contract address>"
 CHAIN_RPC_URL    = "https://mainnet.base.org"
-ALLOWED_ORIGINS  = "https://your-domain.com"
-ADMIN_KEY        = ""   # leave blank — set as a secret below
-W3UP_TOKEN       = ""   # leave blank — set as a secret below
+# Set to your GitHub Pages URL (or "*" for dev)
+ALLOWED_ORIGINS  = "https://<username>.github.io"
+ADMIN_KEY        = ""   # set via wrangler secret (below)
+W3UP_TOKEN       = ""   # set via wrangler secret (below)
 ```
 
-### Set secrets (never committed to git)
+### Set secrets
 
 ```bash
-wrangler secret put DEPLOYER_PRIVATE_KEY   # same key used to deploy contract
-wrangler secret put ADMIN_KEY              # random string, used for X-Admin-Key header
-wrangler secret put W3UP_TOKEN             # from web3.storage dashboard
+wrangler secret put DEPLOYER_PRIVATE_KEY
+wrangler secret put ADMIN_KEY
+wrangler secret put W3UP_TOKEN
 ```
 
-### Install deps and deploy
+### Install and deploy
 
 ```bash
 npm install
 npm run deploy
 ```
 
-Note the worker URL (e.g. `https://quare-backend.<account>.workers.dev`).
+Note the worker URL: `https://quare-backend.<account>.workers.dev`
+
+**New medication management API endpoints (mock data — ready to use):**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/health` | Health check |
+| GET | `/api/recipients` | List care recipients |
+| GET | `/api/medications` | List medications |
+| GET | `/api/medications/:id/explain` | Plain-language medication insight |
+| GET | `/api/doses/due` | Today's dose schedule |
+| POST | `/api/doses/:id/status` | Update dose status (`taken`, `missed`, `skipped`, …) |
 
 ---
 
-## 3. Deploy the web frontend (`apps/web/`)
+## 3. Deploy the frontend to GitHub Pages
 
-### Set environment variables
+### Automatic deployment (recommended)
 
-Create `apps/web/.env.production.local`:
+1. Push to the `main` branch — the workflow at `.github/workflows/deploy-pages.yml` runs automatically.
+2. On first deploy, enable GitHub Pages in repository **Settings → Pages → Source: GitHub Actions**.
+3. (Optional) Add repository variables/secrets in **Settings → Secrets and variables → Actions**:
+   - Secret `NEXT_PUBLIC_API_URL` — your Worker URL
+   - Variable `NEXT_PUBLIC_BASE_PATH` — set to `/<repo-name>` for project sites (e.g. `/quare`); leave empty for a custom domain
 
-```
-NEXT_PUBLIC_API_URL=https://quare-backend.<account>.workers.dev
-NEXT_PUBLIC_APP_URL=https://your-domain.com
-```
-
-### Build and deploy
-
-The web app is a standard Next.js 15 app. Deploy to Vercel (recommended):
+### Manual deployment
 
 ```bash
 cd apps/web
 npm install
-npm run build      # verify locally first
-npx vercel --prod
+
+# For a project site at https://<user>.github.io/<repo>:
+NEXT_PUBLIC_BASE_PATH=/<repo-name> \
+NEXT_PUBLIC_API_URL=https://quare-backend.<account>.workers.dev \
+npm run export
+# Static files are in apps/web/out/ — upload to GitHub Pages
 ```
 
-Or export as static and deploy to any CDN:
+### Local development (frontend only, mock data)
 
 ```bash
-npm run build
-# output in .next/ — configure your hosting accordingly
+cd apps/web
+npm install
+npm run dev      # http://localhost:3000
+```
+
+No API URL is needed — the app falls back to mock data automatically.
+
+---
+
+## 4. Local development (full stack)
+
+```bash
+# Terminal 1 — backend Worker
+cd services/backend
+npm install
+npm run dev       # wrangler dev → http://localhost:8787
+
+# Terminal 2 — frontend
+cd apps/web
+npm install
+NEXT_PUBLIC_API_URL=http://localhost:8787 npm run dev
 ```
 
 ---
 
 ## Environment variable reference
 
-| Variable | Where set | Description |
-|----------|-----------|-------------|
-| `CONTRACT_ADDRESS` | `wrangler.toml` `[vars]` | Deployed FileRegistry address |
-| `CHAIN_RPC_URL` | `wrangler.toml` `[vars]` | Base mainnet RPC (e.g. `https://mainnet.base.org`) |
-| `ALLOWED_ORIGINS` | `wrangler.toml` `[vars]` | CORS allowed origins (`*` for dev) |
-| `DEPLOYER_PRIVATE_KEY` | wrangler secret | Key that deployed the contract (auto-approved as org) |
-| `ADMIN_KEY` | wrangler secret | Shared secret for `X-Admin-Key` header on admin/batch routes |
+| Variable | Where | Description |
+|----------|-------|-------------|
+| `CONTRACT_ADDRESS` | `wrangler.toml` | Deployed FileRegistry address |
+| `CHAIN_RPC_URL` | `wrangler.toml` | Base mainnet RPC |
+| `ALLOWED_ORIGINS` | `wrangler.toml` | CORS allowed origins (`*` for dev, your Pages URL for prod) |
+| `DEPLOYER_PRIVATE_KEY` | wrangler secret | Key that deployed the contract |
+| `ADMIN_KEY` | wrangler secret | Shared secret for `X-Admin-Key` header |
 | `W3UP_TOKEN` | wrangler secret | web3.storage upload token |
-| `NEXT_PUBLIC_API_URL` | web `.env` | Worker URL |
-| `NEXT_PUBLIC_APP_URL` | web `.env` | Frontend URL (used for QR deep-link generation) |
+| `NEXT_PUBLIC_API_URL` | web `.env` / GitHub secret | Worker URL (empty → mock data) |
+| `NEXT_PUBLIC_BASE_PATH` | web `.env` / GitHub variable | Base path for GitHub project sites |
+
+---
+
+## What is missing / TODO for production
+
+- **Persistent dose storage**: `POST /api/doses/:id/status` currently uses in-memory overrides (reset on Worker restart). Wire up KV or D1 for persistence.
+- **Medication CRUD**: `POST /api/medications` and `DELETE /api/medications/:id` are not yet implemented.
+- **Recipient CRUD**: `POST /api/recipients` not yet implemented.
+- **AI-powered medication insights**: `GET /api/medications/:id/explain` returns mock data. Integrate a pharmacological data source or LLM in production.
+- **Full dose history**: The history page shows today's doses only. Add date-range querying.
+- **Authentication**: No user authentication is implemented. Add Workers Auth or a JWT layer before production use.
+- **Push notifications / reminders**: Not yet implemented.
 
 ---
 
 ## Re-deploying after contract changes
 
-If `FileRegistry.sol` changes (e.g. after a security fix):
-
-1. Run the full test suite: `forge test -vv`
-2. Deploy the new contract: `PRIVATE_KEY=... RPC_URL=... npx ts-node deploy.ts`
+1. Run `forge test -vv`
+2. Re-deploy contract: `PRIVATE_KEY=... RPC_URL=... npx ts-node deploy.ts`
 3. Update `CONTRACT_ADDRESS` in `wrangler.toml`
 4. Re-deploy the worker: `npm run deploy` (from `services/backend/`)
-5. Existing KV data (assets, proofs) is unaffected — only on-chain roots need to
-   be re-committed via `POST /batch/:orgId/process` after the new contract is live.
+5. Re-commit batch via `POST /batch/:orgId/process`
