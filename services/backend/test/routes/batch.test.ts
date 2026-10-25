@@ -6,6 +6,7 @@ import { handleBatch } from "../../src/routes/batch.js";
 import { processBatch } from "../../src/services/batchProcessor.js";
 import { makeEnv, req, adminReq } from "../helpers/env.js";
 import { installFetchMock } from "../helpers/fetchMock.js";
+import type { AssetMeta } from "../../src/services/assetStore.js";
 import type { TestEnv } from "../helpers/env.js";
 
 const ABI = [
@@ -34,6 +35,18 @@ const ABI = [
     ],
   },
 ] as const;
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const entries = Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`);
+    return `{${entries.join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
 
 describe("/batch routes + processBatch e2e", () => {
   let env: TestEnv;
@@ -185,12 +198,21 @@ describe("/batch routes + processBatch e2e", () => {
       env,
       `/assets/${orgId}/${medicationRecordId}`
     );
-    expect((await committedMedication.json() as { ipfsCID?: string }).ipfsCID).toMatch(/^bafytest/);
+    const storedMedication = await committedMedication.json() as AssetMeta;
+    expect(storedMedication.ipfsCID).toMatch(/^bafytest/);
 
     const medicationSaltKey = `secrets:med:${orgId}:${medicationRecordId}`;
     const medicationSalt = await env.RECORD_SECRETS.get(medicationSaltKey);
-    expect(JSON.parse(medicationSalt!).salt).toMatch(/^[0-9a-f]{64}$/);
+    const { salt } = JSON.parse(medicationSalt!) as { salt: string };
+    expect(salt).toMatch(/^[0-9a-f]{64}$/);
     expect(await env.RECORD_SECRETS.get(pinSecretKey)).toBe(pinSecret);
+    const { ipfsCID: _ipfsCID, ...medicationForHash } = storedMedication;
+    const hashInput = new TextEncoder().encode(`${salt}:${stableJson(medicationForHash)}`);
+    const hashDigest = await crypto.subtle.digest("SHA-256", hashInput);
+    const recomputedContentHash = Array.from(new Uint8Array(hashDigest), (byte) =>
+      byte.toString(16).padStart(2, "0")
+    ).join("");
+    expect(recomputedContentHash).toBe(medicationUpload?.contentHash);
 
     const medicationProof = await handleAssets(
       req("GET", `/assets/${orgId}/${medicationRecordId}/proof`),

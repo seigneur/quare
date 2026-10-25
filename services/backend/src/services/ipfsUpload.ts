@@ -30,7 +30,8 @@ async function medicationSnapshot(
     await recordSecrets.put(saltKey, JSON.stringify({ salt }));
   }
 
-  const content = new TextEncoder().encode(`${salt}:${stableJson(asset)}`);
+  const { ipfsCID: _ipfsCID, ...assetWithoutIpfsCID } = asset;
+  const content = new TextEncoder().encode(`${salt}:${stableJson(assetWithoutIpfsCID)}`);
   const digest = await crypto.subtle.digest("SHA-256", content);
   const contentHash = Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, "0")
