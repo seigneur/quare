@@ -6,6 +6,13 @@ import { generateMockDoses } from "./mock-data";
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 const ORG_ID = process.env.NEXT_PUBLIC_ORG_ID ?? "";
 
+function adminHeaders(): HeadersInit {
+  const adminKey = typeof window !== "undefined"
+    ? localStorage.getItem("quare_admin_key") ?? ""
+    : "";
+  return { "X-Admin-Key": adminKey };
+}
+
 interface MedicationAsset {
   recordId: string;
   name: string;
@@ -36,7 +43,9 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 export async function fetchRecipients(): Promise<CareRecipient[]> {
   try {
-    return await apiFetch<CareRecipient[]>(`/api/recipients/${encodeURIComponent(ORG_ID)}`);
+    return await apiFetch<CareRecipient[]>(`/api/recipients/${encodeURIComponent(ORG_ID)}`, {
+      headers: adminHeaders(),
+    });
   } catch {
     return [];
   }
@@ -46,7 +55,8 @@ export async function fetchMedications(recipientId?: string): Promise<Medication
   try {
     const query = recipientId ? `?recipientId=${encodeURIComponent(recipientId)}` : "";
     const assets = await apiFetch<MedicationAsset[]>(
-      `/api/medications/${encodeURIComponent(ORG_ID)}${query}`
+      `/api/medications/${encodeURIComponent(ORG_ID)}${query}`,
+      { headers: adminHeaders() }
     );
     return assets.flatMap((asset) => {
       const details = asset.medication;
@@ -107,6 +117,7 @@ export async function updateDoseStatus(
 
 export async function fetchMedicationInsight(medicationId: string): Promise<MedicationInsight> {
   return apiFetch<MedicationInsight>(
-    `/api/medications/${encodeURIComponent(ORG_ID)}/${encodeURIComponent(medicationId)}/explain`
+    `/api/medications/${encodeURIComponent(ORG_ID)}/${encodeURIComponent(medicationId)}/explain`,
+    { headers: adminHeaders() }
   );
 }

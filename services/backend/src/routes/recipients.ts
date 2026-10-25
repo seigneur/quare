@@ -14,6 +14,7 @@ export async function handleRecipients(
   const recipientMatch = pathname.match(/^\/api\/recipients\/([^/]+)\/([^/]+)$/);
 
   if (request.method === "GET" && orgMatch) {
+    if (!verifyAdminKey(request, env.ADMIN_KEY)) return unauthorized();
     const orgId = orgMatch[1];
     const result = await env.ASSETS.list({ prefix: `${orgId}:recipient:` });
     const recipients = await Promise.all(
@@ -42,10 +43,11 @@ export async function handleRecipients(
     if (body.id !== undefined && (typeof body.id !== "string" || !body.id.trim())) {
       return Response.json({ error: "id must be a non-empty string" }, { status: 400, headers });
     }
-    if (body.dateOfBirth !== undefined && typeof body.dateOfBirth !== "string") {
+    if (body.dateOfBirth !== undefined && body.dateOfBirth !== null &&
+      typeof body.dateOfBirth !== "string") {
       return Response.json({ error: "dateOfBirth must be a string" }, { status: 400, headers });
     }
-    if (body.notes !== undefined && typeof body.notes !== "string") {
+    if (body.notes !== undefined && body.notes !== null && typeof body.notes !== "string") {
       return Response.json({ error: "notes must be a string" }, { status: 400, headers });
     }
 
@@ -65,6 +67,7 @@ export async function handleRecipients(
   }
 
   if (recipientMatch && request.method === "GET") {
+    if (!verifyAdminKey(request, env.ADMIN_KEY)) return unauthorized();
     const [, orgId, id] = recipientMatch;
     const value = await env.ASSETS.get(`${orgId}:recipient:${id}`);
     if (!value) return Response.json({ error: "Recipient not found" }, { status: 404, headers });
@@ -78,7 +81,10 @@ export async function handleRecipients(
     const value = await env.ASSETS.get(key);
     if (!value) return Response.json({ error: "Recipient not found" }, { status: 404, headers });
 
-    let body: Partial<Omit<CareRecipient, "id">>;
+    let body: Partial<Omit<CareRecipient, "id">> & {
+      dateOfBirth?: string | null;
+      notes?: string | null;
+    };
     try {
       body = await request.json();
     } catch {
@@ -90,10 +96,11 @@ export async function handleRecipients(
     if (body.name !== undefined && (typeof body.name !== "string" || !body.name.trim())) {
       return Response.json({ error: "name must be a non-empty string" }, { status: 400, headers });
     }
-    if (body.dateOfBirth !== undefined && typeof body.dateOfBirth !== "string") {
+    if (body.dateOfBirth !== undefined && body.dateOfBirth !== null &&
+      typeof body.dateOfBirth !== "string") {
       return Response.json({ error: "dateOfBirth must be a string" }, { status: 400, headers });
     }
-    if (body.notes !== undefined && typeof body.notes !== "string") {
+    if (body.notes !== undefined && body.notes !== null && typeof body.notes !== "string") {
       return Response.json({ error: "notes must be a string" }, { status: 400, headers });
     }
 
@@ -101,8 +108,8 @@ export async function handleRecipients(
     const updated: CareRecipient = {
       id,
       name: body.name ?? existing.name,
-      dateOfBirth: body.dateOfBirth ?? existing.dateOfBirth,
-      notes: body.notes ?? existing.notes,
+      dateOfBirth: body.dateOfBirth === null ? undefined : body.dateOfBirth ?? existing.dateOfBirth,
+      notes: body.notes === null ? undefined : body.notes ?? existing.notes,
     };
     await env.ASSETS.put(key, JSON.stringify(updated));
     return Response.json(updated, { headers });

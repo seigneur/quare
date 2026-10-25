@@ -26,7 +26,7 @@ describe("/api/recipients routes", () => {
     expect(created.status).toBe(201);
 
     const list = await handleRecipients(
-      req("GET", "/api/recipients/org1"),
+      adminReq("GET", "/api/recipients/org1"),
       routeEnv,
       "/api/recipients/org1"
     );
@@ -37,7 +37,7 @@ describe("/api/recipients routes", () => {
     }]);
 
     const recordPath = "/api/recipients/org1/recipient-1";
-    const get = await handleRecipients(req("GET", recordPath), routeEnv, recordPath);
+    const get = await handleRecipients(adminReq("GET", recordPath), routeEnv, recordPath);
     expect((await get.json() as CareRecipient).name).toBe("Margaret Chen");
 
     const patch = await handleRecipients(
@@ -64,6 +64,40 @@ describe("/api/recipients routes", () => {
     expect(patch.status).toBe(401);
   });
 
+  it("requires admin authentication to list and retrieve recipients", async () => {
+    const list = await handleRecipients(
+      req("GET", "/api/recipients/org1"),
+      routeEnv,
+      "/api/recipients/org1"
+    );
+    expect(list.status).toBe(401);
+
+    const recordPath = "/api/recipients/org1/recipient-1";
+    const get = await handleRecipients(req("GET", recordPath), routeEnv, recordPath);
+    expect(get.status).toBe(401);
+  });
+
+  it("clears optional recipient fields when patched with null", async () => {
+    await handleRecipients(
+      adminReq("POST", "/api/recipients/org1", {
+        id: "recipient-1",
+        name: "Margaret",
+        dateOfBirth: "1942-03-15",
+        notes: "Morning medications",
+      }),
+      routeEnv,
+      "/api/recipients/org1"
+    );
+    const path = "/api/recipients/org1/recipient-1";
+    const response = await handleRecipients(
+      adminReq("PATCH", path, { dateOfBirth: null, notes: null }),
+      routeEnv,
+      path
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ id: "recipient-1", name: "Margaret" });
+  });
+
   it("validates recipient names and scopes records by org", async () => {
     const invalid = await handleRecipients(
       adminReq("POST", "/api/recipients/org1", { name: " " }),
@@ -78,7 +112,7 @@ describe("/api/recipients routes", () => {
       "/api/recipients/org1"
     );
     const otherOrg = await handleRecipients(
-      req("GET", "/api/recipients/org2/recipient-1"),
+      adminReq("GET", "/api/recipients/org2/recipient-1"),
       routeEnv,
       "/api/recipients/org2/recipient-1"
     );

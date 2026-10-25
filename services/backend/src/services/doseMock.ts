@@ -1,3 +1,4 @@
+// Temporary in-memory dose mock; replaced by the D1 store in #3.
 import type { DoseOccurrence, DoseStatus, MedicationColor } from "./medicationTypes.js";
 
 const medications: Array<{

@@ -1,7 +1,7 @@
 import { getAsset, putAsset, listAssets, type AssetMeta } from "../services/assetStore.js";
 import { corsHeaders } from "../utils/cors.js";
 import { verifyAdminKey } from "./admin.js";
-import type { MedicationDetails } from "../services/medicationTypes.js";
+import type { MedicationColor, MedicationDetails } from "../services/medicationTypes.js";
 
 interface Env {
   CONTRACT_ADDRESS: string;
@@ -31,11 +31,22 @@ function validateMedication(value: unknown): string | null {
   if (typeof medication.form !== "string" || !medication.form.trim()) {
     return "medication form is required";
   }
-  if (typeof medication.color !== "string" || !medication.color) {
-    return "medication color is required";
+  const colors: MedicationColor[] = [
+    "red", "orange", "yellow", "green", "teal", "blue", "purple", "pink",
+  ];
+  if (!medication.color || !colors.includes(medication.color)) {
+    return "medication color must be a valid medication color";
   }
-  if (typeof medication.startDate !== "string" || !medication.startDate) {
-    return "medication startDate is required";
+  const isValidDate = (date: unknown): date is string => {
+    if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+    const parsed = new Date(`${date}T00:00:00.000Z`);
+    return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date;
+  };
+  if (!isValidDate(medication.startDate)) {
+    return "medication startDate must use YYYY-MM-DD format";
+  }
+  if (medication.endDate !== undefined && !isValidDate(medication.endDate)) {
+    return "medication endDate must use YYYY-MM-DD format";
   }
   if (typeof medication.active !== "boolean") return "medication active is required";
   if (!medication.schedule || typeof medication.schedule !== "object") {
@@ -44,6 +55,21 @@ function validateMedication(value: unknown): string | null {
   if (!["daily", "weekdays", "interval"].includes(medication.schedule.type)) {
     return "medication schedule type must be daily, weekdays, or interval";
   }
+  if (
+    medication.schedule.type === "interval" &&
+    (typeof medication.schedule.intervalHours !== "number" ||
+      !Number.isFinite(medication.schedule.intervalHours) ||
+      medication.schedule.intervalHours <= 0)
+  ) {
+    return "medication intervalHours must be a positive number for interval schedules";
+  }
+  if (
+    medication.schedule.days !== undefined &&
+    (!Array.isArray(medication.schedule.days) ||
+      medication.schedule.days.some((day) => !Number.isInteger(day) || day < 0 || day > 6))
+  ) {
+    return "medication schedule days must be integers from 0 to 6";
+  }
   if (!Array.isArray(medication.schedule.times) || medication.schedule.times.length === 0) {
     return "medication schedule must include at least one time";
   }
@@ -51,6 +77,21 @@ function validateMedication(value: unknown): string | null {
     (time) => typeof time !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)
   )) {
     return "medication schedule times must use HH:mm format";
+  }
+  if (medication.stock !== undefined) {
+    if (!medication.stock || typeof medication.stock !== "object" || Array.isArray(medication.stock)) {
+      return "medication stock must be an object";
+    }
+    if (
+      typeof medication.stock.quantity !== "number" ||
+      !Number.isFinite(medication.stock.quantity) ||
+      medication.stock.quantity < 0
+    ) {
+      return "medication stock quantity must be a number of 0 or more";
+    }
+    if (typeof medication.stock.unit !== "string" || !medication.stock.unit.trim()) {
+      return "medication stock unit must be a non-empty string";
+    }
   }
   if (typeof medication.timezone !== "string" || !medication.timezone) {
     return "medication timezone is required";

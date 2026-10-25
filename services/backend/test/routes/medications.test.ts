@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { handleAssets } from "../../src/routes/assets.js";
 import { handleMedications } from "../../src/routes/medications.js";
-import { makeEnv, req } from "../helpers/env.js";
+import { makeEnv, req, adminReq } from "../helpers/env.js";
 import type { TestEnv } from "../helpers/env.js";
 
 const medication = (recipientId = "recipient-1") => ({
@@ -66,14 +66,14 @@ describe("/api/medications routes", () => {
     );
 
     const all = await handleMedications(
-      req("GET", "/api/medications/org1"),
+      adminReq("GET", "/api/medications/org1"),
       medicationsEnv,
       "/api/medications/org1"
     );
     expect(await all.json()).toHaveLength(2);
 
     const filtered = await handleMedications(
-      req("GET", "/api/medications/org1?recipientId=recipient-1"),
+      adminReq("GET", "/api/medications/org1?recipientId=recipient-1"),
       medicationsEnv,
       "/api/medications/org1"
     );
@@ -85,13 +85,13 @@ describe("/api/medications routes", () => {
   it("returns a specific medication asset and its static insight", async () => {
     const { asset } = await createMedication();
     const path = `/api/medications/org1/${asset.recordId}`;
-    const response = await handleMedications(req("GET", path), medicationsEnv, path);
+    const response = await handleMedications(adminReq("GET", path), medicationsEnv, path);
     expect(response.status).toBe(200);
     expect((await response.json() as { recordId: string }).recordId).toBe(asset.recordId);
 
     const explainPath = `${path}/explain`;
     const explain = await handleMedications(
-      req("GET", explainPath),
+      adminReq("GET", explainPath),
       medicationsEnv,
       explainPath
     );
@@ -111,12 +111,24 @@ describe("/api/medications routes", () => {
 
     const medicationPath = `/api/medications/org1/${asset.recordId}`;
     const response = await handleMedications(
-      req("GET", medicationPath),
+      adminReq("GET", medicationPath),
       medicationsEnv,
       medicationPath
     );
     expect((await response.json() as { medication: { dosage: string } }).medication.dosage)
       .toBe("20 mg");
+  });
+
+  it("requires admin authentication to read medication assets and insights", async () => {
+    const { asset } = await createMedication();
+    for (const path of [
+      "/api/medications/org1",
+      `/api/medications/org1/${asset.recordId}`,
+      `/api/medications/org1/${asset.recordId}/explain`,
+    ]) {
+      const response = await handleMedications(req("GET", path), medicationsEnv, path);
+      expect(response.status).toBe(401);
+    }
   });
 
   it("rejects invalid medication data when creating and patching assets", async () => {
@@ -173,5 +185,47 @@ describe("/api/medications routes", () => {
     expect(await response.json()).toEqual({
       error: "medication timezone must be a valid IANA timezone",
     });
+  });
+
+  it.each([
+    ["interval schedule without intervalHours", { schedule: { type: "interval", times: ["08:00"] } },
+      "medication intervalHours must be a positive number for interval schedules"],
+    ["non-positive intervalHours", { schedule: { type: "interval", times: ["08:00"], intervalHours: 0 } },
+      "medication intervalHours must be a positive number for interval schedules"],
+    ["invalid schedule days", { schedule: { type: "daily", times: ["08:00"], days: [0, 7] } },
+      "medication schedule days must be integers from 0 to 6"],
+    ["fractional schedule days", { schedule: { type: "daily", times: ["08:00"], days: [1.5] } },
+      "medication schedule days must be integers from 0 to 6"],
+    ["negative stock quantity", { stock: { quantity: -1, unit: "tablets" } },
+      "medication stock quantity must be a number of 0 or more"],
+    ["empty stock unit", { stock: { quantity: 0, unit: " " } },
+      "medication stock unit must be a non-empty string"],
+    ["invalid start date", { startDate: "2026-02-30" },
+      "medication startDate must use YYYY-MM-DD format"],
+    ["unparseable start date", { startDate: "2026-00-01" },
+      "medication startDate must use YYYY-MM-DD format"],
+    ["invalid end date", { endDate: "2026-1-01" },
+      "medication endDate must use YYYY-MM-DD format"],
+    ["invalid color", { color: "chartreuse" },
+      "medication color must be a valid medication color"],
+  ])("rejects %s", async (_caseName, overrides, error) => {
+    const body = {
+      name: "Medication",
+      status: "In use",
+      location: "",
+      assignee: "",
+      category: "Medication",
+      fields: {},
+      files: [],
+      kind: "medication",
+      medication: { ...medication(), ...overrides },
+    };
+    const response = await handleAssets(
+      req("POST", "/assets/org1", body),
+      assetsEnv,
+      "/assets/org1"
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error });
   });
 });

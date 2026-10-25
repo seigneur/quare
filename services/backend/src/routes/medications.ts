@@ -1,6 +1,7 @@
 import { getAsset, listAssets } from "../services/assetStore.js";
 import { MEDICATION_INSIGHTS } from "../services/insights.js";
 import { corsHeaders } from "../utils/cors.js";
+import { verifyAdminKey } from "./admin.js";
 import type { Env } from "../index.js";
 
 export async function handleMedications(
@@ -9,9 +10,11 @@ export async function handleMedications(
   pathname: string
 ): Promise<Response> {
   const headers = corsHeaders(env.ALLOWED_ORIGINS);
+  const unauthorized = () => Response.json({ error: "Unauthorized" }, { status: 401, headers });
 
   const explainMatch = pathname.match(/^\/api\/medications\/([^/]+)\/([^/]+)\/explain$/);
   if (request.method === "GET" && explainMatch) {
+    if (!verifyAdminKey(request, env.ADMIN_KEY)) return unauthorized();
     const [, orgId, recordId] = explainMatch;
     const asset = await getAsset(env.ASSETS, orgId, recordId);
     if (!asset || asset.kind !== "medication" || !asset.medication) {
@@ -28,6 +31,7 @@ export async function handleMedications(
 
   const medicationMatch = pathname.match(/^\/api\/medications\/([^/]+)\/([^/]+)$/);
   if (request.method === "GET" && medicationMatch) {
+    if (!verifyAdminKey(request, env.ADMIN_KEY)) return unauthorized();
     const [, orgId, recordId] = medicationMatch;
     const asset = await getAsset(env.ASSETS, orgId, recordId);
     if (!asset || asset.kind !== "medication") {
@@ -38,6 +42,7 @@ export async function handleMedications(
 
   const orgMatch = pathname.match(/^\/api\/medications\/([^/]+)$/);
   if (request.method === "GET" && orgMatch) {
+    if (!verifyAdminKey(request, env.ADMIN_KEY)) return unauthorized();
     const orgId = orgMatch[1];
     const recipientId = new URL(request.url).searchParams.get("recipientId");
     const medications = (await listAssets(env.ASSETS, orgId))
