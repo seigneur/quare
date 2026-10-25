@@ -8,6 +8,7 @@ interface Env {
   CONTRACT_ADDRESS: string;
   CHAIN_RPC_URL: string;
   ALLOWED_ORIGINS: string;
+  RECORD_SECRETS: KVNamespace;
   ASSETS: KVNamespace;
   BATCH_QUEUE: KVNamespace;
   ADMIN_KEY: string;

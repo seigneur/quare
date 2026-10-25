@@ -46,7 +46,7 @@ describe("/assets routes", () => {
       files: [],
     };
 
-    const res = await handleAssets(req("POST", "/assets/org1", body), env as any, "/assets/org1");
+    const res = await handleAssets(req("POST", "/assets/org1", body), env, "/assets/org1");
     expect(res.status).toBe(201);
 
     const data = await res.json() as any;
@@ -64,7 +64,7 @@ describe("/assets routes", () => {
       name: "Scanner", status: "Spare", location: "Storage", assignee: "",
       category: "Scanning", fields: {}, files: [],
     };
-    const res = await handleAssets(req("POST", "/assets/org1", body), env as any, "/assets/org1");
+    const res = await handleAssets(req("POST", "/assets/org1", body), env, "/assets/org1");
     const { recordId } = await res.json() as any;
 
     const pending = await env.BATCH_QUEUE.get("org1:batch:pending");
@@ -74,14 +74,14 @@ describe("/assets routes", () => {
   it("requires admin authentication to create medication assets", async () => {
     const unauthenticated = await handleAssets(
       req("POST", "/assets/org1", medicationAsset()),
-      env as any,
+      env,
       "/assets/org1"
     );
     expect(unauthenticated.status).toBe(401);
 
     const authenticated = await handleAssets(
       adminReq("POST", "/assets/org1", medicationAsset()),
-      env as any,
+      env,
       "/assets/org1"
     );
     expect(authenticated.status).toBe(201);
@@ -93,34 +93,34 @@ describe("/assets routes", () => {
       headers: { "Content-Type": "application/json" },
       body: "not-json",
     });
-    const res = await handleAssets(r, env as any, "/assets/org1");
+    const res = await handleAssets(r, env, "/assets/org1");
     expect(res.status).toBe(400);
   });
 
   // ── GET /assets/:orgId ───────────────────────────────────────────────────
 
   it("returns empty array when no assets", async () => {
-    const res = await handleAssets(req("GET", "/assets/org1"), env as any, "/assets/org1");
+    const res = await handleAssets(req("GET", "/assets/org1"), env, "/assets/org1");
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([]);
   });
 
   it("lists all assets for an org", async () => {
     const body = { name: "A", status: "Deployed", location: "L", assignee: "", category: "C", fields: {}, files: [] };
-    await handleAssets(req("POST", "/assets/org1", body), env as any, "/assets/org1");
-    await handleAssets(req("POST", "/assets/org1", body), env as any, "/assets/org1");
+    await handleAssets(req("POST", "/assets/org1", body), env, "/assets/org1");
+    await handleAssets(req("POST", "/assets/org1", body), env, "/assets/org1");
 
-    const res = await handleAssets(req("GET", "/assets/org1"), env as any, "/assets/org1");
+    const res = await handleAssets(req("GET", "/assets/org1"), env, "/assets/org1");
     const data = await res.json() as any[];
     expect(data).toHaveLength(2);
   });
 
   it("does not mix assets between orgs", async () => {
     const body = { name: "A", status: "Spare", location: "L", assignee: "", category: "C", fields: {}, files: [] };
-    await handleAssets(req("POST", "/assets/org1", body), env as any, "/assets/org1");
-    await handleAssets(req("POST", "/assets/org2", body), env as any, "/assets/org2");
+    await handleAssets(req("POST", "/assets/org1", body), env, "/assets/org1");
+    await handleAssets(req("POST", "/assets/org2", body), env, "/assets/org2");
 
-    const res = await handleAssets(req("GET", "/assets/org1"), env as any, "/assets/org1");
+    const res = await handleAssets(req("GET", "/assets/org1"), env, "/assets/org1");
     const data = await res.json() as any[];
     expect(data).toHaveLength(1);
     expect(data[0].orgId).toBe("org1");
@@ -138,7 +138,7 @@ describe("/assets routes", () => {
         files: [],
         medication: medicationAsset().medication,
       }),
-      env as any,
+      env,
       "/assets/org1"
     );
     const generic = await genericResponse.json() as {
@@ -149,14 +149,14 @@ describe("/assets routes", () => {
     expect(generic).not.toHaveProperty("medication");
     const medicationResponse = await handleAssets(
       adminReq("POST", "/assets/org1", medicationAsset()),
-      env as any,
+      env,
       "/assets/org1"
     );
     const { recordId: medicationId } = await medicationResponse.json() as { recordId: string };
 
     const publicList = await handleAssets(
       req("GET", "/assets/org1"),
-      env as any,
+      env,
       "/assets/org1"
     );
     const publicAssets = await publicList.json() as Array<{ recordId: string }>;
@@ -164,7 +164,7 @@ describe("/assets routes", () => {
 
     const adminList = await handleAssets(
       adminReq("GET", "/assets/org1"),
-      env as any,
+      env,
       "/assets/org1"
     );
     const adminAssets = await adminList.json() as Array<{ recordId: string }>;
@@ -172,21 +172,21 @@ describe("/assets routes", () => {
 
     const publicGeneric = await handleAssets(
       req("GET", `/assets/org1/${genericId}`),
-      env as any,
+      env,
       `/assets/org1/${genericId}`
     );
     expect(publicGeneric.status).toBe(200);
 
     const publicMedication = await handleAssets(
       req("GET", `/assets/org1/${medicationId}`),
-      env as any,
+      env,
       `/assets/org1/${medicationId}`
     );
     expect(publicMedication.status).toBe(401);
 
     const adminMedication = await handleAssets(
       adminReq("GET", `/assets/org1/${medicationId}`),
-      env as any,
+      env,
       `/assets/org1/${medicationId}`
     );
     expect(adminMedication.status).toBe(200);
@@ -196,10 +196,10 @@ describe("/assets routes", () => {
 
   it("retrieves a specific asset", async () => {
     const body = { name: "Printer X", status: "In use", location: "Lab", assignee: "bob", category: "Printing", fields: {}, files: [] };
-    const createRes = await handleAssets(req("POST", "/assets/org1", body), env as any, "/assets/org1");
+    const createRes = await handleAssets(req("POST", "/assets/org1", body), env, "/assets/org1");
     const { recordId } = await createRes.json() as any;
 
-    const res = await handleAssets(req("GET", `/assets/org1/${recordId}`), env as any, `/assets/org1/${recordId}`);
+    const res = await handleAssets(req("GET", `/assets/org1/${recordId}`), env, `/assets/org1/${recordId}`);
     expect(res.status).toBe(200);
     const data = await res.json() as any;
     expect(data.recordId).toBe(recordId);
@@ -209,7 +209,7 @@ describe("/assets routes", () => {
   it("returns 404 for unknown recordId", async () => {
     const res = await handleAssets(
       req("GET", "/assets/org1/non-existent"),
-      env as any,
+      env,
       "/assets/org1/non-existent"
     );
     expect(res.status).toBe(404);
@@ -219,7 +219,7 @@ describe("/assets routes", () => {
 
   it("merges fields and updates updatedAt", async () => {
     const body = { name: "Server", status: "Deployed", location: "DC1", assignee: "carol", category: "Compute", fields: {}, files: [] };
-    const createRes = await handleAssets(req("POST", "/assets/org1", body), env as any, "/assets/org1");
+    const createRes = await handleAssets(req("POST", "/assets/org1", body), env, "/assets/org1");
     const { recordId, createdAt } = await createRes.json() as any;
 
     // Small delay so updatedAt differs
@@ -227,7 +227,7 @@ describe("/assets routes", () => {
 
     const patchRes = await handleAssets(
       req("PATCH", `/assets/org1/${recordId}`, { location: "DC2", status: "Maintenance" }),
-      env as any,
+      env,
       `/assets/org1/${recordId}`
     );
     expect(patchRes.status).toBe(200);
@@ -241,11 +241,11 @@ describe("/assets routes", () => {
 
   it("marks batch dirty after PATCH", async () => {
     const body = { name: "X", status: "Spare", location: "L", assignee: "", category: "C", fields: {}, files: [] };
-    const { recordId } = await (await handleAssets(req("POST", "/assets/org1", body), env as any, "/assets/org1")).json() as any;
+    const { recordId } = await (await handleAssets(req("POST", "/assets/org1", body), env, "/assets/org1")).json() as any;
 
     // Clear queue, then patch
     await env.BATCH_QUEUE.delete("org1:batch:pending");
-    await handleAssets(req("PATCH", `/assets/org1/${recordId}`, { location: "new" }), env as any, `/assets/org1/${recordId}`);
+    await handleAssets(req("PATCH", `/assets/org1/${recordId}`, { location: "new" }), env, `/assets/org1/${recordId}`);
 
     const pending = await env.BATCH_QUEUE.get("org1:batch:pending");
     expect(JSON.parse(pending!)).toContain(recordId);
@@ -254,7 +254,7 @@ describe("/assets routes", () => {
   it("protects medication PATCH and drops medication details when reverting to generic", async () => {
     const medicationCreate = await handleAssets(
       adminReq("POST", "/assets/org1", medicationAsset()),
-      env as any,
+      env,
       "/assets/org1"
     );
     const { recordId } = await medicationCreate.json() as { recordId: string };
@@ -262,21 +262,21 @@ describe("/assets routes", () => {
 
     const unauthenticatedMedicationPatch = await handleAssets(
       req("PATCH", patchPath, { name: "Changed medication" }),
-      env as any,
+      env,
       patchPath
     );
     expect(unauthenticatedMedicationPatch.status).toBe(401);
 
     const authenticatedMedicationPatch = await handleAssets(
       adminReq("PATCH", patchPath, { name: "Changed medication" }),
-      env as any,
+      env,
       patchPath
     );
     expect(authenticatedMedicationPatch.status).toBe(200);
 
     const flipToGeneric = await handleAssets(
       adminReq("PATCH", patchPath, { kind: "generic" }),
-      env as any,
+      env,
       patchPath
     );
     expect(flipToGeneric.status).toBe(200);
@@ -284,7 +284,7 @@ describe("/assets routes", () => {
 
     const publiclyReadable = await handleAssets(
       req("GET", patchPath),
-      env as any,
+      env,
       patchPath
     );
     expect(publiclyReadable.status).toBe(200);
@@ -302,7 +302,7 @@ describe("/assets routes", () => {
         fields: {},
         files: [],
       }),
-      env as any,
+      env,
       "/assets/org1"
     );
     const { recordId } = await created.json() as { recordId: string };
@@ -310,14 +310,14 @@ describe("/assets routes", () => {
 
     const unauthenticated = await handleAssets(
       req("PATCH", path, medicationAsset()),
-      env as any,
+      env,
       path
     );
     expect(unauthenticated.status).toBe(401);
 
     const authenticated = await handleAssets(
       adminReq("PATCH", path, medicationAsset()),
-      env as any,
+      env,
       path
     );
     expect(authenticated.status).toBe(200);
@@ -326,7 +326,7 @@ describe("/assets routes", () => {
   it("returns 404 on PATCH for unknown asset", async () => {
     const res = await handleAssets(
       req("PATCH", "/assets/org1/ghost", { name: "x" }),
-      env as any,
+      env,
       "/assets/org1/ghost"
     );
     expect(res.status).toBe(404);
@@ -336,19 +336,19 @@ describe("/assets routes", () => {
 
   it("deletes asset from KV (admin only)", async () => {
     const body = { name: "D", status: "Disposed", location: "L", assignee: "", category: "C", fields: {}, files: [] };
-    const { recordId } = await (await handleAssets(req("POST", "/assets/org1", body), env as any, "/assets/org1")).json() as any;
+    const { recordId } = await (await handleAssets(req("POST", "/assets/org1", body), env, "/assets/org1")).json() as any;
 
-    const delRes = await handleAssets(adminReq("DELETE", `/assets/org1/${recordId}`), env as any, `/assets/org1/${recordId}`);
+    const delRes = await handleAssets(adminReq("DELETE", `/assets/org1/${recordId}`), env, `/assets/org1/${recordId}`);
     expect(delRes.status).toBe(200);
 
-    const getRes = await handleAssets(req("GET", `/assets/org1/${recordId}`), env as any, `/assets/org1/${recordId}`);
+    const getRes = await handleAssets(req("GET", `/assets/org1/${recordId}`), env, `/assets/org1/${recordId}`);
     expect(getRes.status).toBe(404);
   });
 
   it("returns 401 on DELETE without admin key", async () => {
     const res = await handleAssets(
       req("DELETE", "/assets/org1/whatever"),
-      env as any,
+      env,
       "/assets/org1/whatever"
     );
     expect(res.status).toBe(401);
@@ -358,11 +358,11 @@ describe("/assets routes", () => {
 
   it("returns 404 when no proof exists yet", async () => {
     const body = { name: "P", status: "Spare", location: "L", assignee: "", category: "C", fields: {}, files: [] };
-    const { recordId } = await (await handleAssets(req("POST", "/assets/org1", body), env as any, "/assets/org1")).json() as any;
+    const { recordId } = await (await handleAssets(req("POST", "/assets/org1", body), env, "/assets/org1")).json() as any;
 
     const res = await handleAssets(
       req("GET", `/assets/org1/${recordId}/proof`),
-      env as any,
+      env,
       `/assets/org1/${recordId}/proof`
     );
     expect(res.status).toBe(404);
@@ -370,7 +370,7 @@ describe("/assets routes", () => {
 
   it("returns stored proof after it has been written", async () => {
     const body = { name: "P", status: "Spare", location: "L", assignee: "", category: "C", fields: {}, files: [] };
-    const { recordId } = await (await handleAssets(req("POST", "/assets/org1", body), env as any, "/assets/org1")).json() as any;
+    const { recordId } = await (await handleAssets(req("POST", "/assets/org1", body), env, "/assets/org1")).json() as any;
 
     // Manually write a proof (normally done by batchProcessor)
     const fakeProof = ["0xaabbcc", "0xddeeff"];
@@ -378,7 +378,7 @@ describe("/assets routes", () => {
 
     const res = await handleAssets(
       req("GET", `/assets/org1/${recordId}/proof`),
-      env as any,
+      env,
       `/assets/org1/${recordId}/proof`
     );
     expect(res.status).toBe(200);

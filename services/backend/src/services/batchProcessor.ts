@@ -11,6 +11,7 @@ interface Env {
   CHAIN_RPC_URL: string;
   ASSETS: KVNamespace;
   BATCH_QUEUE: KVNamespace;
+  RECORD_SECRETS: KVNamespace;
   W3UP_TOKEN: string;
 }
 
@@ -28,7 +29,7 @@ export async function processBatch(
   const pendingSet = new Set(pending);
   for (const asset of assets) {
     if (!asset.ipfsCID || pendingSet.has(asset.recordId)) {
-      const cid = await uploadAssetSnapshot(asset, env.W3UP_TOKEN);
+      const cid = await uploadAssetSnapshot(asset, env.W3UP_TOKEN, env.RECORD_SECRETS);
       asset.ipfsCID = cid;
       await putAsset(env.ASSETS, env.BATCH_QUEUE, asset);
     }

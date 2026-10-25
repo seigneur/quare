@@ -84,7 +84,7 @@ The worker is the single coordinator between three storage layers:
 
 **Batch flow** (`src/services/batchProcessor.ts`):
 1. Reads pending dirty recordIds from BATCH_QUEUE
-2. Lists all org assets; re-uploads IPFS snapshot for any asset missing a CID **or** in the dirty set (ensures PATCH changes are reflected)
+2. Lists all org assets; re-uploads IPFS snapshot for any asset missing a CID **or** in the dirty set (ensures PATCH changes are reflected). Generic assets upload their full snapshot; medication assets upload only `{recordId, orgId, kind, updatedAt, contentHash}` so health data is not published.
 3. Builds a SHA-256 binary Merkle tree over all org assets (`src/services/merkle.ts`)
 4. Stores per-asset sibling proofs back into ASSETS KV
 5. Uploads a full tree snapshot to IPFS → `metaCID`
@@ -96,6 +96,7 @@ The worker is the single coordinator between three storage layers:
 **Secrets — what goes where:**
 - `DEPLOYER_PRIVATE_KEY` — wrangler secret only, never in wrangler.toml
 - `ADMIN_KEY`, `W3UP_TOKEN` — wrangler secrets (empty placeholder in wrangler.toml vars is overridden by the secret in prod)
+- Medication snapshot salts — stored in `RECORD_SECRETS` at `secrets:med:{orgId}:{recordId}` and reused to salt a SHA-256 hash of the stable full medication asset JSON; separate from PIN-flow `secrets:{recordId}` entries.
 - KV namespace IDs — fill in wrangler.toml after running `wrangler kv:namespace create`
 
 ### Contract (`services/contract/FileRegistry.sol`)
