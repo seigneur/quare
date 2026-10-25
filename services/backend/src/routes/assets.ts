@@ -116,7 +116,9 @@ export async function handleAssets(
   const orgOnlyMatch = pathname.match(/^\/assets\/([^/]+)$/);
   if (request.method === "GET" && orgOnlyMatch) {
     const orgId = orgOnlyMatch[1];
-    const assets = await listAssets(env.ASSETS, orgId);
+    const isAdmin = verifyAdminKey(request, env.ADMIN_KEY);
+    const assets = (await listAssets(env.ASSETS, orgId))
+      .filter((asset) => isAdmin || (asset.kind !== "medication" && !asset.medication));
     return new Response(JSON.stringify(assets), { status: 200, headers: jsonHeaders });
   }
 
@@ -139,9 +141,14 @@ export async function handleAssets(
       });
     }
 
+    if (body.kind === "medication" && !verifyAdminKey(request, env.ADMIN_KEY)) {
+      return unauthorized(env);
+    }
     if (body.kind === "medication") {
       const error = validateMedication(body.medication);
       if (error) return new Response(JSON.stringify({ error }), { status: 400, headers });
+    } else {
+      delete body.medication;
     }
 
     const now = new Date().toISOString();
@@ -166,6 +173,12 @@ export async function handleAssets(
     if (!asset) {
       return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers });
     }
+    if (
+      (asset.kind === "medication" || asset.medication) &&
+      !verifyAdminKey(request, env.ADMIN_KEY)
+    ) {
+      return unauthorized(env);
+    }
     return new Response(JSON.stringify(asset), { status: 200, headers: jsonHeaders });
   }
 
@@ -175,6 +188,9 @@ export async function handleAssets(
     const existing = await getAsset(env.ASSETS, orgId, recordId);
     if (!existing) {
       return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers });
+    }
+    if (existing.kind === "medication" && !verifyAdminKey(request, env.ADMIN_KEY)) {
+      return unauthorized(env);
     }
 
     let body: Partial<AssetMeta>;
@@ -195,6 +211,12 @@ export async function handleAssets(
       createdAt: existing.createdAt,
       updatedAt: new Date().toISOString(),
     };
+    if (
+      updated.kind === "medication" &&
+      !verifyAdminKey(request, env.ADMIN_KEY)
+    ) {
+      return unauthorized(env);
+    }
     if (updated.kind !== undefined && updated.kind !== "generic" && updated.kind !== "medication") {
       return new Response(JSON.stringify({ error: "kind must be generic or medication" }), {
         status: 400,
@@ -204,6 +226,8 @@ export async function handleAssets(
     if (updated.kind === "medication") {
       const error = validateMedication(updated.medication);
       if (error) return new Response(JSON.stringify({ error }), { status: 400, headers });
+    } else {
+      delete updated.medication;
     }
     await putAsset(env.ASSETS, env.BATCH_QUEUE, updated);
     return new Response(JSON.stringify(updated), { status: 200, headers: jsonHeaders });

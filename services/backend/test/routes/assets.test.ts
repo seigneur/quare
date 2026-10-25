@@ -10,6 +10,29 @@ describe("/assets routes", () => {
     env = makeEnv();
   });
 
+  function medicationAsset(name = "Lisinopril") {
+    return {
+      name,
+      status: "In use",
+      location: "",
+      assignee: "recipient-1",
+      category: "Medication",
+      fields: {},
+      files: [],
+      kind: "medication",
+      medication: {
+        recipientId: "recipient-1",
+        dosage: "10 mg",
+        form: "Tablet",
+        color: "blue",
+        schedule: { type: "daily", times: ["08:00"] },
+        startDate: "2026-01-01",
+        timezone: "Asia/Singapore",
+        active: true,
+      },
+    };
+  }
+
   // ── POST /assets/:orgId ──────────────────────────────────────────────────
 
   it("creates an asset and returns it with a recordId", async () => {
@@ -46,6 +69,22 @@ describe("/assets routes", () => {
 
     const pending = await env.BATCH_QUEUE.get("org1:batch:pending");
     expect(JSON.parse(pending!)).toContain(recordId);
+  });
+
+  it("requires admin authentication to create medication assets", async () => {
+    const unauthenticated = await handleAssets(
+      req("POST", "/assets/org1", medicationAsset()),
+      env as any,
+      "/assets/org1"
+    );
+    expect(unauthenticated.status).toBe(401);
+
+    const authenticated = await handleAssets(
+      adminReq("POST", "/assets/org1", medicationAsset()),
+      env as any,
+      "/assets/org1"
+    );
+    expect(authenticated.status).toBe(201);
   });
 
   it("returns 400 on invalid JSON", async () => {
@@ -85,6 +124,72 @@ describe("/assets routes", () => {
     const data = await res.json() as any[];
     expect(data).toHaveLength(1);
     expect(data[0].orgId).toBe("org1");
+  });
+
+  it("filters medication assets from unauthenticated lists while preserving generic access", async () => {
+    const genericResponse = await handleAssets(
+      req("POST", "/assets/org1", {
+        name: "Public generic asset",
+        status: "Deployed",
+        location: "HQ",
+        assignee: "",
+        category: "Computing",
+        fields: {},
+        files: [],
+        medication: medicationAsset().medication,
+      }),
+      env as any,
+      "/assets/org1"
+    );
+    const generic = await genericResponse.json() as {
+      recordId: string;
+      medication?: unknown;
+    };
+    const { recordId: genericId } = generic;
+    expect(generic).not.toHaveProperty("medication");
+    const medicationResponse = await handleAssets(
+      adminReq("POST", "/assets/org1", medicationAsset()),
+      env as any,
+      "/assets/org1"
+    );
+    const { recordId: medicationId } = await medicationResponse.json() as { recordId: string };
+
+    const publicList = await handleAssets(
+      req("GET", "/assets/org1"),
+      env as any,
+      "/assets/org1"
+    );
+    const publicAssets = await publicList.json() as Array<{ recordId: string }>;
+    expect(publicAssets.map((asset) => asset.recordId)).toEqual([genericId]);
+
+    const adminList = await handleAssets(
+      adminReq("GET", "/assets/org1"),
+      env as any,
+      "/assets/org1"
+    );
+    const adminAssets = await adminList.json() as Array<{ recordId: string }>;
+    expect(adminAssets.map((asset) => asset.recordId)).toContain(medicationId);
+
+    const publicGeneric = await handleAssets(
+      req("GET", `/assets/org1/${genericId}`),
+      env as any,
+      `/assets/org1/${genericId}`
+    );
+    expect(publicGeneric.status).toBe(200);
+
+    const publicMedication = await handleAssets(
+      req("GET", `/assets/org1/${medicationId}`),
+      env as any,
+      `/assets/org1/${medicationId}`
+    );
+    expect(publicMedication.status).toBe(401);
+
+    const adminMedication = await handleAssets(
+      adminReq("GET", `/assets/org1/${medicationId}`),
+      env as any,
+      `/assets/org1/${medicationId}`
+    );
+    expect(adminMedication.status).toBe(200);
   });
 
   // ── GET /assets/:orgId/:recordId ─────────────────────────────────────────
@@ -144,6 +249,78 @@ describe("/assets routes", () => {
 
     const pending = await env.BATCH_QUEUE.get("org1:batch:pending");
     expect(JSON.parse(pending!)).toContain(recordId);
+  });
+
+  it("protects medication PATCH and drops medication details when reverting to generic", async () => {
+    const medicationCreate = await handleAssets(
+      adminReq("POST", "/assets/org1", medicationAsset()),
+      env as any,
+      "/assets/org1"
+    );
+    const { recordId } = await medicationCreate.json() as { recordId: string };
+    const patchPath = `/assets/org1/${recordId}`;
+
+    const unauthenticatedMedicationPatch = await handleAssets(
+      req("PATCH", patchPath, { name: "Changed medication" }),
+      env as any,
+      patchPath
+    );
+    expect(unauthenticatedMedicationPatch.status).toBe(401);
+
+    const authenticatedMedicationPatch = await handleAssets(
+      adminReq("PATCH", patchPath, { name: "Changed medication" }),
+      env as any,
+      patchPath
+    );
+    expect(authenticatedMedicationPatch.status).toBe(200);
+
+    const flipToGeneric = await handleAssets(
+      adminReq("PATCH", patchPath, { kind: "generic" }),
+      env as any,
+      patchPath
+    );
+    expect(flipToGeneric.status).toBe(200);
+    expect(await flipToGeneric.json()).not.toHaveProperty("medication");
+
+    const publiclyReadable = await handleAssets(
+      req("GET", patchPath),
+      env as any,
+      patchPath
+    );
+    expect(publiclyReadable.status).toBe(200);
+    expect(await publiclyReadable.json()).not.toHaveProperty("medication");
+  });
+
+  it("requires admin authentication when a generic asset is changed into a medication", async () => {
+    const created = await handleAssets(
+      req("POST", "/assets/org1", {
+        name: "Generic",
+        status: "Deployed",
+        location: "HQ",
+        assignee: "",
+        category: "Other",
+        fields: {},
+        files: [],
+      }),
+      env as any,
+      "/assets/org1"
+    );
+    const { recordId } = await created.json() as { recordId: string };
+    const path = `/assets/org1/${recordId}`;
+
+    const unauthenticated = await handleAssets(
+      req("PATCH", path, medicationAsset()),
+      env as any,
+      path
+    );
+    expect(unauthenticated.status).toBe(401);
+
+    const authenticated = await handleAssets(
+      adminReq("PATCH", path, medicationAsset()),
+      env as any,
+      path
+    );
+    expect(authenticated.status).toBe(200);
   });
 
   it("returns 404 on PATCH for unknown asset", async () => {

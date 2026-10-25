@@ -68,7 +68,7 @@ The worker is the single coordinator between three storage layers:
 - `src/routes/admin.ts` — `POST /admin/records` (store salt+iv), `POST /admin/records/:id/revoke`, `GET /admin/records/:id`
 - `src/routes/assets.ts` — `GET/POST /assets/:orgId`, `GET/PATCH/DELETE /assets/:orgId/:recordId`, `GET /assets/:orgId/:recordId/proof`
 - `src/routes/medications.ts` — `GET /api/medications/:orgId` (optional `recipientId` filter), `GET /api/medications/:orgId/:recordId`, and static `GET .../explain`
-- `src/routes/recipients.ts` — `GET/POST /api/recipients/:orgId`, `GET/PATCH /api/recipients/:orgId/:id` (writes require `X-Admin-Key`)
+- `src/routes/recipients.ts` — `GET/POST /api/recipients/:orgId`, `GET/PATCH /api/recipients/:orgId/:id` (all routes require `X-Admin-Key`)
 - `src/routes/batch.ts` — `POST /batch/:orgId/process`, `GET /batch/:orgId/pending`, `GET /batch/:orgId/checkpoints`
 - `src/routes/pin.ts` — `POST /pin/verify`
 - `src/routes/files.ts` — `GET /files/:cid`
@@ -126,7 +126,7 @@ For development data, `scripts/seed-medications.ts` posts the sample recipients 
 
 ### Admin auth pattern
 
-`verifyAdminKey` (exported from `src/routes/admin.ts`) does a timing-safe string comparison against `env.ADMIN_KEY`. All write-capable and sensitive routes (`DELETE /assets`, all `/batch/*`, all `/admin/*`) require the `X-Admin-Key` request header.
+`verifyAdminKey` (exported from `src/routes/admin.ts`) does a timing-safe string comparison against `env.ADMIN_KEY`. All write-capable and sensitive routes (`DELETE /assets`, all `/batch/*`, all `/admin/*`, and all `/api/medications/*` and `/api/recipients/*`) require the `X-Admin-Key` request header. Medication assets on `/assets/*` require the key for creation, updates, and direct reads; unauthenticated asset lists omit medications, while generic asset behavior remains public.
 
 ## Testing
 

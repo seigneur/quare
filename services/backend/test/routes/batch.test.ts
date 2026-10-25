@@ -101,7 +101,7 @@ describe("/batch routes + processBatch e2e", () => {
       );
     }
     const medicationCreate = await handleAssets(
-      req("POST", `/assets/${orgId}`, {
+      adminReq("POST", `/assets/${orgId}`, {
         ...baseBody,
         name: "Lisinopril",
         kind: "medication",

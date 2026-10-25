@@ -39,7 +39,7 @@ describe("/api/medications routes", () => {
       medication: medication(recipientId),
     };
     const response = await handleAssets(
-      req("POST", "/assets/org1", body),
+      adminReq("POST", "/assets/org1", body),
       assetsEnv,
       "/assets/org1"
     );
@@ -103,7 +103,7 @@ describe("/api/medications routes", () => {
     const { asset } = await createMedication();
     const path = `/assets/org1/${asset.recordId}`;
     const patch = await handleAssets(
-      req("PATCH", path, { medication: { ...medication(), dosage: "20 mg" } }),
+      adminReq("PATCH", path, { medication: { ...medication(), dosage: "20 mg" } }),
       assetsEnv,
       path
     );
@@ -144,7 +144,7 @@ describe("/api/medications routes", () => {
       medication: { ...medication(), schedule: { type: "daily", times: ["8:00"] } },
     };
     const invalidCreate = await handleAssets(
-      req("POST", "/assets/org1", body),
+      adminReq("POST", "/assets/org1", body),
       assetsEnv,
       "/assets/org1"
     );
@@ -156,7 +156,7 @@ describe("/api/medications routes", () => {
     const { asset } = await createMedication();
     const patchPath = `/assets/org1/${asset.recordId}`;
     const invalidPatch = await handleAssets(
-      req("PATCH", patchPath, { medication: { ...medication(), dosage: " " } }),
+      adminReq("PATCH", patchPath, { medication: { ...medication(), dosage: " " } }),
       assetsEnv,
       patchPath
     );
@@ -177,7 +177,7 @@ describe("/api/medications routes", () => {
       medication: { ...medication(), timezone: "Not/A_Timezone" },
     };
     const response = await handleAssets(
-      req("POST", "/assets/org1", body),
+      adminReq("POST", "/assets/org1", body),
       assetsEnv,
       "/assets/org1"
     );
@@ -221,7 +221,7 @@ describe("/api/medications routes", () => {
       medication: { ...medication(), ...overrides },
     };
     const response = await handleAssets(
-      req("POST", "/assets/org1", body),
+      adminReq("POST", "/assets/org1", body),
       assetsEnv,
       "/assets/org1"
     );

@@ -86,7 +86,9 @@ async function post(path: string, body: unknown): Promise<void> {
 }
 
 async function get<T>(path: string): Promise<T> {
-  const response = await fetch(`${apiBase}${path}`);
+  const response = await fetch(`${apiBase}${path}`, {
+    headers: { "X-Admin-Key": adminKey },
+  });
   if (!response.ok) {
     throw new Error(`GET ${path} failed (${response.status}): ${await response.text()}`);
   }
