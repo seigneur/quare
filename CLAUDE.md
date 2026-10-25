@@ -67,14 +67,17 @@ The worker is the single coordinator between three storage layers:
 **Route handlers:**
 - `src/routes/admin.ts` — `POST /admin/records` (store salt+iv), `POST /admin/records/:id/revoke`, `GET /admin/records/:id`
 - `src/routes/assets.ts` — `GET/POST /assets/:orgId`, `GET/PATCH/DELETE /assets/:orgId/:recordId`, `GET /assets/:orgId/:recordId/proof`
+- `src/routes/medications.ts` — `GET /api/medications/:orgId` (optional `recipientId` filter), `GET /api/medications/:orgId/:recordId`, and static `GET .../explain`
+- `src/routes/recipients.ts` — `GET/POST /api/recipients/:orgId`, `GET/PATCH /api/recipients/:orgId/:id` (writes require `X-Admin-Key`)
 - `src/routes/batch.ts` — `POST /batch/:orgId/process`, `GET /batch/:orgId/pending`, `GET /batch/:orgId/checkpoints`
 - `src/routes/pin.ts` — `POST /pin/verify`
 - `src/routes/files.ts` — `GET /files/:cid`
 
-**Asset shape** (`src/services/assetStore.ts` — `AssetMeta`): `recordId`, `orgId`, `name`, `status` (Deployed/In use/Maintenance/Spare/Disposed), `location`, `assignee`, `category`, `fields` (Record), `files` (array with name/cid/encrypted/size), `createdAt`, `updatedAt`, `ipfsCID?`.
+**Asset shape** (`src/services/assetStore.ts` — `AssetMeta`): `recordId`, `orgId`, `name`, `status` (Deployed/In use/Maintenance/Spare/Disposed), `location`, `assignee`, `category`, `fields` (Record), `files` (array with name/cid/encrypted/size), `kind?` (generic by default or medication), `medication?` (`MedicationDetails`), `createdAt`, `updatedAt`, `ipfsCID?`. Medication assets use the same KV, IPFS, batch queue, and Merkle flow as other assets.
 
 **KV key namespacing:**
 - `{orgId}:asset:{recordId}` — asset JSON in ASSETS
+- `{orgId}:recipient:{id}` — recipient JSON in ASSETS
 - `{orgId}:batch:pending` — JSON array of dirty recordIds in BATCH_QUEUE
 - `{orgId}:proof:{recordId}` — Merkle sibling proof array in ASSETS
 - `secrets:{recordId}` — `{salt, iv}` JSON in RECORD_SECRETS
@@ -112,7 +115,10 @@ Two pages:
 - `/admin` — super-admin panel (client component): admin key stored in `localStorage`, calls `src/lib/admin-api.ts` which sends `X-Admin-Key` header, renders QR codes via `react-qr-code`, supports print-to-PDF QR sheets via `window.print()` with `@media print` CSS isolation
 
 `NEXT_PUBLIC_API_URL` — points to the deployed Worker URL.
+`NEXT_PUBLIC_ORG_ID` — selects the organization for the caregiver medication and recipient pages.
 `NEXT_PUBLIC_APP_URL` — used to generate QR scan deep-link URLs (`{APP_URL}/scan?id={recordId}`).
+
+For development data, `scripts/seed-medications.ts` posts the sample recipients and medications to the API. Set `API_URL`, `ORG_ID`, and `ADMIN_KEY` (or their `NEXT_PUBLIC_*` API/org equivalents), then run `node --experimental-strip-types scripts/seed-medications.ts`.
 
 ### iOS (`apps/ios/`)
 

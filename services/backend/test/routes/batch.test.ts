@@ -92,14 +92,34 @@ describe("/batch routes + processBatch e2e", () => {
       category: "Computing", fields: {}, files: [],
     };
 
-    // Create 3 assets
-    for (const name of ["Asset A", "Asset B", "Asset C"]) {
+    // Create two generic assets and one medication asset
+    for (const name of ["Asset A", "Asset B"]) {
       await handleAssets(
         req("POST", `/assets/${orgId}`, { ...baseBody, name }),
         env as any,
         `/assets/${orgId}`
       );
     }
+    const medicationCreate = await handleAssets(
+      req("POST", `/assets/${orgId}`, {
+        ...baseBody,
+        name: "Lisinopril",
+        kind: "medication",
+        medication: {
+          recipientId: "recipient-001",
+          dosage: "10 mg",
+          form: "Tablet",
+          color: "blue",
+          schedule: { type: "daily", times: ["08:00"] },
+          startDate: "2026-01-01",
+          timezone: "Asia/Singapore",
+          active: true,
+        },
+      }),
+      env as any,
+      `/assets/${orgId}`
+    );
+    const { recordId: medicationRecordId } = await medicationCreate.json() as { recordId: string };
 
     // Verify they're all pending
     const pendingRes = await handleBatch(
@@ -121,8 +141,16 @@ describe("/batch routes + processBatch e2e", () => {
     const result = await batchRes.json() as any;
     expect(result.assetCount).toBe(3);
     expect(result.processed).toHaveLength(3);
+    expect(result.processed).toContain(medicationRecordId);
     expect(result.root).toHaveLength(64); // 32-byte hex
     expect(result.metaCID).toMatch(/^bafytest/);
+
+    const committedMedication = await handleAssets(
+      req("GET", `/assets/${orgId}/${medicationRecordId}`),
+      env as any,
+      `/assets/${orgId}/${medicationRecordId}`
+    );
+    expect((await committedMedication.json() as { ipfsCID?: string }).ipfsCID).toMatch(/^bafytest/);
 
     // Pending queue should be cleared
     const afterRes = await handleBatch(

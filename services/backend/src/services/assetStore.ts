@@ -1,3 +1,5 @@
+import type { MedicationDetails } from "./medicationTypes.js";
+
 export interface AssetMeta {
   recordId: string;
   orgId: string;
@@ -8,6 +10,8 @@ export interface AssetMeta {
   category: string;
   fields: Record<string, string | number>;
   files: Array<{ name: string; cid: string; encrypted: boolean; size: number }>;
+  kind?: "generic" | "medication";
+  medication?: MedicationDetails;
   createdAt: string;
   updatedAt: string;
   ipfsCID?: string;

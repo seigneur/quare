@@ -1,6 +1,7 @@
 import { getAsset, putAsset, listAssets, type AssetMeta } from "../services/assetStore.js";
 import { corsHeaders } from "../utils/cors.js";
 import { verifyAdminKey } from "./admin.js";
+import type { MedicationDetails } from "../services/medicationTypes.js";
 
 interface Env {
   CONTRACT_ADDRESS: string;
@@ -16,6 +17,50 @@ function unauthorized(env: Env): Response {
     status: 401,
     headers: corsHeaders(env.ALLOWED_ORIGINS),
   });
+}
+
+function validateMedication(value: unknown): string | null {
+  if (!value || typeof value !== "object") return "medication must be an object";
+  const medication = value as Partial<MedicationDetails>;
+  if (typeof medication.dosage !== "string" || !medication.dosage.trim()) {
+    return "medication dosage is required";
+  }
+  if (typeof medication.recipientId !== "string" || !medication.recipientId.trim()) {
+    return "medication recipientId is required";
+  }
+  if (typeof medication.form !== "string" || !medication.form.trim()) {
+    return "medication form is required";
+  }
+  if (typeof medication.color !== "string" || !medication.color) {
+    return "medication color is required";
+  }
+  if (typeof medication.startDate !== "string" || !medication.startDate) {
+    return "medication startDate is required";
+  }
+  if (typeof medication.active !== "boolean") return "medication active is required";
+  if (!medication.schedule || typeof medication.schedule !== "object") {
+    return "medication schedule is required";
+  }
+  if (!["daily", "weekdays", "interval"].includes(medication.schedule.type)) {
+    return "medication schedule type must be daily, weekdays, or interval";
+  }
+  if (!Array.isArray(medication.schedule.times) || medication.schedule.times.length === 0) {
+    return "medication schedule must include at least one time";
+  }
+  if (medication.schedule.times.some(
+    (time) => typeof time !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)
+  )) {
+    return "medication schedule times must use HH:mm format";
+  }
+  if (typeof medication.timezone !== "string" || !medication.timezone) {
+    return "medication timezone is required";
+  }
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: medication.timezone });
+  } catch {
+    return "medication timezone must be a valid IANA timezone";
+  }
+  return null;
 }
 
 export async function handleAssets(
@@ -42,6 +87,20 @@ export async function handleAssets(
       body = await request.json();
     } catch {
       return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400, headers });
+    }
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return new Response(JSON.stringify({ error: "Invalid asset" }), { status: 400, headers });
+    }
+    if (body.kind !== undefined && body.kind !== "generic" && body.kind !== "medication") {
+      return new Response(JSON.stringify({ error: "kind must be generic or medication" }), {
+        status: 400,
+        headers,
+      });
+    }
+
+    if (body.kind === "medication") {
+      const error = validateMedication(body.medication);
+      if (error) return new Response(JSON.stringify({ error }), { status: 400, headers });
     }
 
     const now = new Date().toISOString();
@@ -83,6 +142,9 @@ export async function handleAssets(
     } catch {
       return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400, headers });
     }
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return new Response(JSON.stringify({ error: "Invalid asset" }), { status: 400, headers });
+    }
 
     const updated: AssetMeta = {
       ...existing,
@@ -92,6 +154,16 @@ export async function handleAssets(
       createdAt: existing.createdAt,
       updatedAt: new Date().toISOString(),
     };
+    if (updated.kind !== undefined && updated.kind !== "generic" && updated.kind !== "medication") {
+      return new Response(JSON.stringify({ error: "kind must be generic or medication" }), {
+        status: 400,
+        headers,
+      });
+    }
+    if (updated.kind === "medication") {
+      const error = validateMedication(updated.medication);
+      if (error) return new Response(JSON.stringify({ error }), { status: 400, headers });
+    }
     await putAsset(env.ASSETS, env.BATCH_QUEUE, updated);
     return new Response(JSON.stringify(updated), { status: 200, headers: jsonHeaders });
   }
