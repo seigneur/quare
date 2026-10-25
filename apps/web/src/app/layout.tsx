@@ -1,21 +1,11 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+import { ThemeProvider } from "@/components/ThemeProvider";
 
 export const metadata: Metadata = {
-  title: "Quare",
-  description: "Quare — cross-platform app",
+  title: "Quare Care — Caregiver Medication Companion",
+  description: "Simple, color-coded medication management for caregivers supporting elderly family members.",
 };
 
 export default function RootLayout({
@@ -25,11 +15,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        {children}
+      <body className="antialiased">
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );
 }
+

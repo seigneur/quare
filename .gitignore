@@ -1,0 +1,5 @@
+# Monorepo root — ignore common artifacts across all workspaces
+node_modules/
+.DS_Store
+.vscode/
+*.local
