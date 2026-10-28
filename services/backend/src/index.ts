@@ -6,10 +6,13 @@ import { handleAssets } from "./routes/assets.js";
 import { handleBatch } from "./routes/batch.js";
 import { processBatch } from "./services/batchProcessor.js";
 import { handleMedications } from "./routes/medications.js";
-import { handleDoses } from "./routes/doses.js";
+import { handleDoses, handleAdherence } from "./routes/doses.js";
 import { handleRecipients } from "./routes/recipients.js";
+import { materializeDoses, markMissed, reconcileStock } from "./services/doseStore.js";
+import type { AssetMeta } from "./services/assetStore.js";
 
 export interface Env {
+  DB: D1Database;
   CONTRACT_ADDRESS: string;
   CHAIN_RPC_URL: string;
   ALLOWED_ORIGINS: string;
@@ -43,6 +46,10 @@ export default {
     // /api/doses/* routes
     if (pathname.startsWith("/api/doses")) {
       return handleDoses(request, env, pathname);
+    }
+
+    if (pathname.startsWith("/api/adherence")) {
+      return handleAdherence(request, env, pathname);
     }
 
     // /api/recipients routes
@@ -82,7 +89,28 @@ export default {
     });
   },
 
-  async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
+  async scheduled(event: ScheduledEvent, env: Env): Promise<void> {
+    if (event.cron === "* * * * *") {
+      const orgIds = new Set<string>();
+      let cursor: string | undefined;
+      do {
+        const page = await env.ASSETS.list({ cursor });
+        for (const key of page.keys) {
+          if (!key.name.includes(":asset:")) continue;
+          const value = await env.ASSETS.get(key.name);
+          const asset = value ? JSON.parse(value) as AssetMeta : null;
+          if (asset?.kind === "medication" && asset.medication) orgIds.add(asset.orgId);
+        }
+        cursor = page.list_complete ? undefined : page.cursor;
+      } while (cursor);
+      for (const orgId of orgIds) {
+        await materializeDoses(orgId, env);
+        await markMissed(orgId, env);
+        await reconcileStock(orgId, env);
+      }
+      return;
+    }
+    if (event.cron !== "*/5 * * * *") return;
     const result = await env.BATCH_QUEUE.list();
     const orgIds = [
       ...new Set(

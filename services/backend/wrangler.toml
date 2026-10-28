@@ -11,7 +11,12 @@ ADMIN_KEY = ""
 W3UP_TOKEN = ""
 
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["*/5 * * * *", "* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "quare-doses"
+database_id = ""
 
 [[kv_namespaces]]
 binding = "RECORD_SECRETS"

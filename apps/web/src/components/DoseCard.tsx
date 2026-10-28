@@ -8,7 +8,7 @@ import { updateDoseStatus } from "@/lib/medication-api";
 
 interface DoseCardProps {
   dose: DoseOccurrence;
-  onStatusChange?: (updated: DoseOccurrence) => void;
+  onStatusChange: (updated: DoseOccurrence) => void;
 }
 
 function formatTime(iso: string) {
@@ -34,15 +34,18 @@ const STATUS_BADGE: Record<string, string> = {
 export function DoseCard({ dose, onStatusChange }: DoseCardProps) {
   const [busy, setBusy] = useState(false);
   const [showExplain, setShowExplain] = useState(false);
-  const [currentStatus, setCurrentStatus] = useState(dose.status);
+  const [error, setError] = useState<string | null>(null);
+  const currentStatus = dose.status;
 
   async function markAs(status: DoseOccurrence["status"]) {
     if (busy) return;
     setBusy(true);
+    setError(null);
     try {
       const updated = await updateDoseStatus(dose.id, status);
-      setCurrentStatus(updated.status);
-      onStatusChange?.(updated);
+      onStatusChange(updated);
+    } catch {
+      setError("Could not save this dose status. No change was confirmed. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -63,7 +66,7 @@ export function DoseCard({ dose, onStatusChange }: DoseCardProps) {
             <p className="font-semibold text-white truncate" style={{ fontSize: "var(--body-font-size)" }}>
               {dose.medicationName}
             </p>
-            <p className="text-gray-400 text-sm">{dose.dosage} · {formatTime(dose.scheduledAt)}</p>
+            <p className="text-gray-400 text-sm">{dose.dosage} - {formatTime(dose.scheduledAt)}</p>
           </div>
           <span className={`text-xs px-2 py-0.5 rounded-full font-semibold capitalize ${STATUS_BADGE[currentStatus]}`}>
             {currentStatus}
@@ -79,7 +82,7 @@ export function DoseCard({ dose, onStatusChange }: DoseCardProps) {
                 disabled={busy}
                 className="flex-1 py-2 px-3 rounded-xl text-sm font-semibold bg-green-700 hover:bg-green-600 text-white disabled:opacity-50 transition-colors"
               >
-                ✓ Mark Taken
+                Mark Taken
               </button>
               <button
                 onClick={() => markAs("skipped")}
@@ -106,6 +109,7 @@ export function DoseCard({ dose, onStatusChange }: DoseCardProps) {
             Explain
           </button>
         </div>
+        {error && <p role="alert" className="text-red-300 text-sm">{error}</p>}
       </div>
 
       {showExplain && (

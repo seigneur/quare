@@ -2,8 +2,10 @@ import { getAsset, putAsset, listAssets, type AssetMeta } from "../services/asse
 import { corsHeaders } from "../utils/cors.js";
 import { verifyAdminKey } from "./admin.js";
 import type { MedicationColor, MedicationDetails } from "../services/medicationTypes.js";
+import { resetMedicationStock } from "../services/doseStore.js";
 
 interface Env {
+  DB: D1Database;
   CONTRACT_ADDRESS: string;
   CHAIN_RPC_URL: string;
   ALLOWED_ORIGINS: string;
@@ -160,6 +162,7 @@ export async function handleAssets(
       updatedAt: now,
     };
     await putAsset(env.ASSETS, env.BATCH_QUEUE, asset);
+    if (asset.kind === "medication") await resetMedicationStock(asset, env.DB);
     return new Response(JSON.stringify(asset), { status: 201, headers: jsonHeaders });
   }
 
@@ -230,6 +233,11 @@ export async function handleAssets(
       delete updated.medication;
     }
     await putAsset(env.ASSETS, env.BATCH_QUEUE, updated);
+    if (existing.kind === "medication" || updated.kind === "medication") {
+      if (body.medication !== undefined || updated.kind !== "medication") {
+        await resetMedicationStock(updated, env.DB);
+      }
+    }
     return new Response(JSON.stringify(updated), { status: 200, headers: jsonHeaders });
   }
 

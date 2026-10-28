@@ -40,6 +40,12 @@ export interface DoseOccurrence {
   notes?: string;
 }
 
+export interface AdherenceSummary {
+  taken: number;
+  missed: number;
+  adherence: number | null;
+}
+
 export interface MedicationInsight {
   medicationId: string;
   medicationName: string;

@@ -52,23 +52,25 @@ PRIVATE_KEY=0x... RPC_URL=https://mainnet.base.org npx ts-node deploy.ts
 
 ### Backend (Cloudflare Worker)
 
-The worker is the single coordinator between three storage layers:
+The worker coordinates mutable records, dose history, and immutable verification:
 
 | Layer | Binding | Role |
 |-------|---------|------|
 | Cloudflare KV `ASSETS` | live DB | mutable asset records, proof cache |
 | Cloudflare KV `BATCH_QUEUE` | dirty queue | tracks which assets need Merkle re-commitment |
 | Cloudflare KV `RECORD_SECRETS` | secret store | per-record salt+iv for legacy PIN flow |
+| Cloudflare D1 `DB` | dose log | scheduled doses, statuses, and adherence |
 | IPFS (web3.storage) | immutable snapshots | per-asset `meta.json`, tree snapshot |
 | Base L2 (viem) | trust anchor | Merkle root + checkpoint history |
 
-**Request routing** (`src/index.ts`): pathname-prefix dispatch — `/admin/*`, `/assets/*`, `/batch/*`, `/pin/verify`, `/files/:cid`. The `scheduled` handler fires every 5 minutes, lists all keys in `BATCH_QUEUE`, extracts unique orgIds, and calls `processBatch` for each.
+**Request routing** (`src/index.ts`): pathname-prefix dispatch — `/admin/*`, `/assets/*`, `/batch/*`, `/api/*`, `/pin/verify`, `/files/:cid`. The `*/5 * * * *` cron keeps processing `BATCH_QUEUE` through `processBatch`. The `* * * * *` cron discovers organizations with medication assets, materializes the next 36 hours of doses, and marks pending doses missed after a 60-minute grace period.
 
 **Route handlers:**
 - `src/routes/admin.ts` — `POST /admin/records` (store salt+iv), `POST /admin/records/:id/revoke`, `GET /admin/records/:id`
 - `src/routes/assets.ts` — `GET/POST /assets/:orgId`, `GET/PATCH/DELETE /assets/:orgId/:recordId`, `GET /assets/:orgId/:recordId/proof`
 - `src/routes/medications.ts` — `GET /api/medications/:orgId` (optional `recipientId` filter), `GET /api/medications/:orgId/:recordId`, and static `GET .../explain`
 - `src/routes/recipients.ts` — `GET/POST /api/recipients/:orgId`, `GET/PATCH /api/recipients/:orgId/:id` (all routes require `X-Admin-Key`)
+- `src/routes/doses.ts` — authenticated `GET /api/doses/:orgId/due?window=12h` (past and upcoming window), `GET /api/doses/:orgId/history?from&to&recipientId&status`, `POST /api/doses/:orgId/:doseId/status`, and `GET /api/adherence/:orgId?recipientId&days=30`. Adherence is `taken / (taken + missed)`, or `null` without observations.
 - `src/routes/batch.ts` — `POST /batch/:orgId/process`, `GET /batch/:orgId/pending`, `GET /batch/:orgId/checkpoints`
 - `src/routes/pin.ts` — `POST /pin/verify`
 - `src/routes/files.ts` — `GET /files/:cid`
@@ -81,6 +83,10 @@ The worker is the single coordinator between three storage layers:
 - `{orgId}:batch:pending` — JSON array of dirty recordIds in BATCH_QUEUE
 - `{orgId}:proof:{recordId}` — Merkle sibling proof array in ASSETS
 - `secrets:{recordId}` — `{salt, iv}` JSON in RECORD_SECRETS
+
+**Dose scheduling and storage:** `src/services/schedule.ts` expands medication schedules in their IANA timezone over a half-open UTC range. Daily and weekday schedules retain local wall-clock times; nonexistent DST times are skipped and repeated times occur once at the earlier instant. Intervals use elapsed hours anchored to the start date's first schedule time. Start/end dates are inclusive local dates. `src/services/doseStore.ts` inserts occurrences with `INSERT OR IGNORE` into D1, uniquely keyed by `(record_id, scheduled_at)`. D1 triggers atomically decrement optional stock on transition to `taken` (never below zero) and restore the consumed amount when correcting a taken dose. Repeated confirmations do not decrement again. `medication_stock` owns inventory between explicit medication edits, which reset that counter. Status requests and the minute cron reconcile stock to KV through `putAsset`, making failed KV writes retryable and keeping private snapshots and Merkle batches current.
+
+Create a D1 database, fill the `DB` binding's `database_id` in `services/backend/wrangler.toml`, and apply `migrations/0001_doses.sql` using `wrangler d1 migrations apply quare-doses` (`--local` for development, `--remote` for production). D1 retains history even if the medication asset is deleted. Dashboard and history use the authenticated dose APIs rather than mock data.
 
 **Batch flow** (`src/services/batchProcessor.ts`):
 1. Reads pending dirty recordIds from BATCH_QUEUE
@@ -136,6 +142,7 @@ For development data, `scripts/seed-medications.ts` posts the sample recipients 
 Tests live in `services/backend/test/`. The global setup (`test/globalSetup.ts`) spawns a local Anvil chain (port 8545, chain ID 8453 to match viem's `base`), runs `forge build` to compile the contract, deploys it, and exposes `TEST_CONTRACT_ADDRESS` / `TEST_RPC_URL` / `TEST_DEPLOYER_KEY` to all tests.
 
 - `test/helpers/kv.ts` — `MemoryKV` in-process KV stub
+- `test/helpers/d1.ts` — in-memory SQLite-backed D1 shim that applies the real dose migration
 - `test/helpers/env.ts` — `makeEnv()`, `req()`, `adminReq()` request builders
 - `test/helpers/fetchMock.ts` — stubs `fetch` for `https://up.web3.storage`, returns incrementing fake CIDs (`bafytest0001`, …); real RPC calls pass through
 - `test/routes/admin.test.ts` — auth, store/revoke/inspect record secrets
