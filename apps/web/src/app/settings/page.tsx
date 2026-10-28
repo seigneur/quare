@@ -73,7 +73,7 @@ export default function SettingsPage() {
           <p className="text-gray-500 text-xs leading-relaxed">
             Backend:{" "}
             <span className="font-mono text-violet-300">
-              {process.env.NEXT_PUBLIC_API_URL || "(not configured — using mock data)"}
+              {process.env.NEXT_PUBLIC_API_URL || "(not configured)"}
             </span>
           </p>
           <p className="text-gray-600 text-xs mt-1">

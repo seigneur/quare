@@ -63,10 +63,12 @@ export class SQLiteD1 {
   private readonly database = new Database(":memory:");
 
   constructor() {
-    this.database.exec(readFileSync(
-      new URL("../../migrations/0001_doses.sql", import.meta.url),
-      "utf8"
-    ));
+    for (const migration of ["0001_doses.sql", "0002_medication_orgs.sql"]) {
+      this.database.exec(readFileSync(
+        new URL(`../../migrations/${migration}`, import.meta.url),
+        "utf8"
+      ));
+    }
   }
 
   prepare(query: string): SQLiteStatement {

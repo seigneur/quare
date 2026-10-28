@@ -9,7 +9,6 @@ import { handleMedications } from "./routes/medications.js";
 import { handleDoses, handleAdherence } from "./routes/doses.js";
 import { handleRecipients } from "./routes/recipients.js";
 import { materializeDoses, markMissed, reconcileStock } from "./services/doseStore.js";
-import type { AssetMeta } from "./services/assetStore.js";
 
 export interface Env {
   DB: D1Database;
@@ -91,19 +90,10 @@ export default {
 
   async scheduled(event: ScheduledEvent, env: Env): Promise<void> {
     if (event.cron === "* * * * *") {
-      const orgIds = new Set<string>();
-      let cursor: string | undefined;
-      do {
-        const page = await env.ASSETS.list({ cursor });
-        for (const key of page.keys) {
-          if (!key.name.includes(":asset:")) continue;
-          const value = await env.ASSETS.get(key.name);
-          const asset = value ? JSON.parse(value) as AssetMeta : null;
-          if (asset?.kind === "medication" && asset.medication) orgIds.add(asset.orgId);
-        }
-        cursor = page.list_complete ? undefined : page.cursor;
-      } while (cursor);
-      for (const orgId of orgIds) {
+      const { results } = await env.DB.prepare(
+        "SELECT org_id FROM medication_orgs"
+      ).all<{ org_id: string }>();
+      for (const { org_id: orgId } of results) {
         await materializeDoses(orgId, env);
         await markMissed(orgId, env);
         await reconcileStock(orgId, env);

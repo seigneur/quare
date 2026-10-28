@@ -46,6 +46,50 @@ describe("/api/medications routes", () => {
     return { response, asset: await response.json() as { recordId: string } };
   }
 
+  it("indexes medication organizations idempotently on create", async () => {
+    await createMedication();
+    await createMedication("recipient-2");
+    const { results } = await env.DB.prepare("SELECT org_id FROM medication_orgs")
+      .all<{ org_id: string }>();
+    expect(results).toEqual([{ org_id: "org1" }]);
+  });
+
+  it("does not index generic assets and indexes PATCH conversion to medication", async () => {
+    const response = await handleAssets(
+      req("POST", "/assets/org1", {
+        name: "Asset", status: "In use", location: "", assignee: "",
+        category: "", fields: {}, files: [],
+      }),
+      assetsEnv,
+      "/assets/org1"
+    );
+    const { recordId } = await response.json() as { recordId: string };
+    expect((await env.DB.prepare("SELECT org_id FROM medication_orgs").all()).results).toEqual([]);
+    const path = `/assets/org1/${recordId}`;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const patch = await handleAssets(
+        adminReq("PATCH", path, { kind: "medication", medication: medication() }),
+        assetsEnv,
+        path
+      );
+      expect(patch.status).toBe(200);
+    }
+    expect((await env.DB.prepare("SELECT org_id FROM medication_orgs").all()).results)
+      .toEqual([{ org_id: "org1" }]);
+  });
+
+  it("does not index rejected medication writes", async () => {
+    const response = await handleAssets(
+      req("POST", "/assets/org1", { kind: "medication", medication: medication() }),
+      assetsEnv,
+      "/assets/org1"
+    );
+    expect(response.status).toBe(401);
+    const { response: invalid } = await createMedication("");
+    expect(invalid.status).toBe(400);
+    expect((await env.DB.prepare("SELECT org_id FROM medication_orgs").all()).results).toEqual([]);
+  });
+
   it("lists medication assets and filters by recipient", async () => {
     const { asset: firstMedication } = await createMedication();
     await createMedication("recipient-2", "Metformin");

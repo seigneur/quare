@@ -63,6 +63,9 @@ describe("dose scheduling cron", () => {
       updatedAt: NOW,
     };
     await env.ASSETS.put(`${orgId}:asset:${recordId}`, JSON.stringify(asset));
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO medication_orgs (org_id) VALUES (?)"
+    ).bind(orgId).run();
   }
 
   it("materializes all medication organizations every minute and marks overdue doses missed", async () => {
@@ -87,25 +90,33 @@ describe("dose scheduling cron", () => {
     expect(await env.BATCH_QUEUE.get("org1:batch:pending")).toBe(JSON.stringify(["med-1"]));
   });
 
-  it("discovers medication organizations across paginated KV results", async () => {
+  it("uses the medication-org index without listing unrelated organizations or unprefixed KV keys", async () => {
     await medication("org1", "med-1");
     await medication("org2", "med-2");
+    await env.ASSETS.put("generic-org:asset:laptop", JSON.stringify({
+      orgId: "generic-org", recordId: "laptop", kind: "generic",
+    }));
     const originalList = env.ASSETS.list.bind(env.ASSETS);
     const list = vi.spyOn(env.ASSETS, "list").mockImplementation(async (options) => {
-      if (options?.prefix) return originalList(options);
-      return (options?.cursor
-        ? { keys: [{ name: "org2:asset:med-2" }], list_complete: true, cacheStatus: null }
-        : {
-          keys: [{ name: "org1:asset:med-1" }],
-          list_complete: false,
-          cursor: "second-page",
-          cacheStatus: null,
-        }) as Awaited<ReturnType<KVNamespace["list"]>>;
+      if (!options?.prefix) throw new Error("Unprefixed KV discovery is forbidden");
+      return originalList(options);
     });
+    const get = vi.spyOn(env.ASSETS, "get");
     await worker.scheduled(event("* * * * *"), env);
-    expect(list).toHaveBeenCalledWith(expect.objectContaining({ cursor: "second-page" }));
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ prefix: "org1:asset:" }));
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ prefix: "org2:asset:" }));
+    expect(get).not.toHaveBeenCalledWith("generic-org:asset:laptop");
     expect(await listDoses("org1", env, RANGE)).toHaveLength(3);
     expect(await listDoses("org2", env, RANGE)).toHaveLength(3);
+  });
+
+  it("does not read KV when the medication-org index is empty", async () => {
+    const list = vi.spyOn(env.ASSETS, "list");
+    const get = vi.spyOn(env.ASSETS, "get");
+    await worker.scheduled(event("* * * * *"), env);
+    expect(list).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
   });
 
   it("reconciles stock projections on the next minute after a transient KV failure", async () => {

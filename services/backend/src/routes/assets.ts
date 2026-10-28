@@ -161,6 +161,11 @@ export async function handleAssets(
       createdAt: now,
       updatedAt: now,
     };
+    if (asset.kind === "medication") {
+      await env.DB.prepare(
+        "INSERT OR IGNORE INTO medication_orgs (org_id) VALUES (?)"
+      ).bind(orgId).run();
+    }
     await putAsset(env.ASSETS, env.BATCH_QUEUE, asset);
     if (asset.kind === "medication") await resetMedicationStock(asset, env.DB);
     return new Response(JSON.stringify(asset), { status: 201, headers: jsonHeaders });
@@ -236,6 +241,11 @@ export async function handleAssets(
       if (error) return new Response(JSON.stringify({ error }), { status: 400, headers });
     } else {
       delete updated.medication;
+    }
+    if (updated.kind === "medication") {
+      await env.DB.prepare(
+        "INSERT OR IGNORE INTO medication_orgs (org_id) VALUES (?)"
+      ).bind(orgId).run();
     }
     await putAsset(env.ASSETS, env.BATCH_QUEUE, updated);
     let responseAsset = updated;
