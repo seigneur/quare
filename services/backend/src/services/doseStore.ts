@@ -40,7 +40,7 @@ function toOccurrence(row: DoseRow, asset: AssetMeta | null): DoseOccurrence {
 
 export async function materializeDoses(
   orgId: string,
-  env: Env,
+  env: Pick<Env, "DB" | "ASSETS">,
   horizonHours = 36
 ): Promise<void> {
   if (!Number.isFinite(horizonHours) || horizonHours <= 0) {
@@ -50,11 +50,13 @@ export async function materializeDoses(
   const until = new Date(now.getTime() + horizonHours * 3_600_000);
   const assets = await listAssets(env.ASSETS, orgId);
   const statements: D1PreparedStatement[] = [];
+  const expected = new Set<string>();
   for (const asset of assets) {
     if (asset.kind !== "medication" || !asset.medication?.active || asset.status === "Disposed") {
       continue;
     }
     for (const scheduledAt of expandSchedule(asset.medication, now, until)) {
+      expected.add(JSON.stringify([asset.recordId, asset.medication.recipientId, scheduledAt.toISOString()]));
       statements.push(env.DB.prepare(
         `INSERT OR IGNORE INTO doses
           (id, org_id, record_id, recipient_id, scheduled_at, status, created_at, updated_at)
@@ -65,8 +67,21 @@ export async function materializeDoses(
       ));
     }
   }
-  for (let offset = 0; offset < statements.length; offset += 100) {
-    await env.DB.batch(statements.slice(offset, offset + 100));
+  const pending = await env.DB.prepare(
+    `SELECT * FROM doses WHERE org_id = ? AND status = 'pending'
+     AND scheduled_at >= ? AND scheduled_at < ?`
+  ).bind(orgId, now.toISOString(), until.toISOString()).all<DoseRow>();
+  const deletions: D1PreparedStatement[] = [];
+  for (const row of pending.results) {
+    if (!expected.has(JSON.stringify([row.record_id, row.recipient_id, row.scheduled_at]))) {
+      deletions.push(env.DB.prepare(
+        "DELETE FROM doses WHERE org_id = ? AND id = ? AND status = 'pending'"
+      ).bind(orgId, row.id));
+    }
+  }
+  const changes = [...deletions, ...statements];
+  for (let offset = 0; offset < changes.length; offset += 100) {
+    await env.DB.batch(changes.slice(offset, offset + 100));
   }
 }
 
@@ -104,7 +119,7 @@ export async function resetMedicationStock(asset: AssetMeta, db: D1Database): Pr
   if (asset.medication?.stock) {
     await db.prepare(
       `INSERT INTO medication_stock (record_id, org_id, quantity) VALUES (?, ?, ?)
-       ON CONFLICT(record_id) DO UPDATE SET quantity = excluded.quantity`
+       ON CONFLICT(record_id) DO UPDATE SET quantity = excluded.quantity, needs_sync = 1`
     ).bind(asset.recordId, asset.orgId, asset.medication.stock.quantity).run();
   } else {
     await db.prepare(
@@ -113,19 +128,28 @@ export async function resetMedicationStock(asset: AssetMeta, db: D1Database): Pr
   }
 }
 
-export async function reconcileStock(orgId: string, env: Env, recordId?: string): Promise<void> {
+export async function reconcileStock(
+  orgId: string,
+  env: Pick<Env, "DB" | "ASSETS" | "BATCH_QUEUE">,
+  recordId?: string
+): Promise<void> {
   const query = env.DB.prepare(
-    `SELECT record_id, quantity FROM medication_stock WHERE org_id = ?${recordId ? " AND record_id = ?" : ""}`
+    `SELECT record_id, quantity FROM medication_stock
+     WHERE org_id = ? AND needs_sync = 1${recordId ? " AND record_id = ?" : ""}`
   );
   const { results } = await (recordId ? query.bind(orgId, recordId) : query.bind(orgId))
     .all<{ record_id: string; quantity: number }>();
   for (const stock of results) {
     const asset = await getAsset(env.ASSETS, orgId, stock.record_id);
-    if (asset?.kind !== "medication" || !asset.medication?.stock ||
-      asset.medication.stock.quantity === stock.quantity) continue;
+    if (asset?.kind !== "medication" || !asset.medication?.stock) continue;
     asset.medication.stock.quantity = stock.quantity;
     asset.updatedAt = new Date().toISOString();
     await putAsset(env.ASSETS, env.BATCH_QUEUE, asset);
+    // Clear only the projected value; a concurrent change still needs a retry.
+    await env.DB.prepare(
+      `UPDATE medication_stock SET needs_sync = CASE WHEN quantity = ? THEN 0 ELSE 1 END
+       WHERE org_id = ? AND record_id = ?`
+    ).bind(stock.quantity, orgId, stock.record_id).run();
   }
 }
 

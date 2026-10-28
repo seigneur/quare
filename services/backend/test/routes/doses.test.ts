@@ -80,6 +80,23 @@ describe("/api/doses and /api/adherence", () => {
     expect((await doses())[0].status).toBe("pending");
   });
 
+  it("fails closed with an unconfigured admin key even when the header is missing or empty", async () => {
+    env.ADMIN_KEY = "";
+    const [dose] = await doses();
+    const headerCases: Record<string, string>[] = [{}, { "X-Admin-Key": "" }];
+    for (const headers of headerCases) {
+      for (const [method, path, body] of [
+        ["GET", "/api/doses/org1/due", undefined],
+        ["GET", `/api/doses/org1/history?from=${FROM}&to=${TO}`, undefined],
+        ["POST", `/api/doses/org1/${dose.id}/status`, { status: "taken" }],
+        ["GET", "/api/adherence/org1", undefined],
+      ] as const) {
+        expect((await worker.fetch(req(method, path, body, headers), env)).status).toBe(401);
+      }
+    }
+    expect((await doses())[0].status).toBe("pending");
+  });
+
   it("returns persisted, hydrated due doses from the recent past and upcoming window", async () => {
     const response = await worker.fetch(adminReq("GET", "/api/doses/org1/due?window=12h"), env);
     expect(response.status).toBe(200);

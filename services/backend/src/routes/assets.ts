@@ -2,7 +2,7 @@ import { getAsset, putAsset, listAssets, type AssetMeta } from "../services/asse
 import { corsHeaders } from "../utils/cors.js";
 import { verifyAdminKey } from "./admin.js";
 import type { MedicationColor, MedicationDetails } from "../services/medicationTypes.js";
-import { resetMedicationStock } from "../services/doseStore.js";
+import { materializeDoses, reconcileStock, resetMedicationStock } from "../services/doseStore.js";
 
 interface Env {
   DB: D1Database;
@@ -214,6 +214,11 @@ export async function handleAssets(
       createdAt: existing.createdAt,
       updatedAt: new Date().toISOString(),
     };
+    if (updated.kind === "medication" && body.medication &&
+      !Object.prototype.hasOwnProperty.call(body.medication, "stock") &&
+      existing.medication?.stock) {
+      updated.medication = { ...body.medication, stock: existing.medication.stock };
+    }
     if (
       updated.kind === "medication" &&
       !verifyAdminKey(request, env.ADMIN_KEY)
@@ -233,18 +238,40 @@ export async function handleAssets(
       delete updated.medication;
     }
     await putAsset(env.ASSETS, env.BATCH_QUEUE, updated);
+    let responseAsset = updated;
     if (existing.kind === "medication" || updated.kind === "medication") {
-      if (body.medication !== undefined || updated.kind !== "medication") {
+      if (updated.kind !== "medication" ||
+        updated.medication?.stock?.quantity !== existing.medication?.stock?.quantity) {
         await resetMedicationStock(updated, env.DB);
+      } else {
+        await reconcileStock(orgId, env, recordId);
+        responseAsset = await getAsset(env.ASSETS, orgId, recordId) ?? updated;
+      }
+      const before = existing.medication;
+      const after = updated.medication;
+      if (existing.kind !== updated.kind ||
+        (existing.status === "Disposed") !== (updated.status === "Disposed") ||
+        before?.active !== after?.active || before?.recipientId !== after?.recipientId ||
+        before?.startDate !== after?.startDate || before?.endDate !== after?.endDate ||
+        before?.timezone !== after?.timezone ||
+        JSON.stringify(before?.schedule) !== JSON.stringify(after?.schedule)) {
+        await materializeDoses(orgId, env);
       }
     }
-    return new Response(JSON.stringify(updated), { status: 200, headers: jsonHeaders });
+    return new Response(JSON.stringify(responseAsset), { status: 200, headers: jsonHeaders });
   }
 
   // DELETE /assets/:orgId/:recordId
   if (request.method === "DELETE" && recordMatch) {
     if (!verifyAdminKey(request, env.ADMIN_KEY)) return unauthorized(env);
     const [, orgId, recordId] = recordMatch;
+    const asset = await getAsset(env.ASSETS, orgId, recordId);
+    if (asset?.kind === "medication") {
+      await env.DB.prepare(
+        `DELETE FROM doses WHERE org_id = ? AND record_id = ?
+         AND status = 'pending' AND scheduled_at >= ?`
+      ).bind(orgId, recordId, new Date().toISOString()).run();
+    }
     await env.ASSETS.delete(`${orgId}:asset:${recordId}`);
     // Mark batch dirty so the tree recomputes without this leaf
     const raw = await env.BATCH_QUEUE.get(`${orgId}:batch:pending`);

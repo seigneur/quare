@@ -21,7 +21,8 @@ CREATE INDEX doses_org_schedule ON doses (org_id, scheduled_at);
 CREATE TABLE medication_stock (
   record_id TEXT PRIMARY KEY NOT NULL,
   org_id TEXT NOT NULL,
-  quantity REAL NOT NULL CHECK (quantity >= 0)
+  quantity REAL NOT NULL CHECK (quantity >= 0),
+  needs_sync INTEGER NOT NULL DEFAULT 1 CHECK (needs_sync IN (0, 1))
 );
 CREATE INDEX medication_stock_org ON medication_stock (org_id);
 
@@ -32,14 +33,14 @@ BEGIN
     (SELECT MIN(1, quantity) FROM medication_stock
      WHERE org_id = NEW.org_id AND record_id = NEW.record_id), 0
   ) WHERE id = NEW.id;
-  UPDATE medication_stock SET quantity = MAX(0, quantity - 1)
+  UPDATE medication_stock SET quantity = MAX(0, quantity - 1), needs_sync = 1
   WHERE org_id = NEW.org_id AND record_id = NEW.record_id;
 END;
 
 CREATE TRIGGER dose_undo_stock AFTER UPDATE OF status ON doses
 WHEN OLD.status = 'taken' AND NEW.status <> 'taken'
 BEGIN
-  UPDATE medication_stock SET quantity = quantity + OLD.stock_deducted
+  UPDATE medication_stock SET quantity = quantity + OLD.stock_deducted, needs_sync = 1
   WHERE org_id = NEW.org_id AND record_id = NEW.record_id;
   UPDATE doses SET stock_deducted = 0 WHERE id = NEW.id;
 END;

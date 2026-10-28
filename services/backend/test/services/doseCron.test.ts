@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "../../src/index.js";
-import type { AssetMeta } from "../../src/services/assetStore.js";
+import { getAsset, type AssetMeta } from "../../src/services/assetStore.js";
 import { processBatch } from "../../src/services/batchProcessor.js";
-import { listDoses } from "../../src/services/doseStore.js";
+import { listDoses, setDoseStatus } from "../../src/services/doseStore.js";
 import { SQLiteD1 } from "../helpers/d1.js";
 import { makeEnv, type TestEnv } from "../helpers/env.js";
 
@@ -56,6 +56,7 @@ describe("dose scheduling cron", () => {
         schedule: { type: "daily", times: ["08:00", "20:00"] },
         startDate: "2026-03-01",
         timezone: "UTC",
+        stock: { quantity: 10, unit: "tablets" },
         active: true,
       },
       createdAt: NOW,
@@ -105,6 +106,57 @@ describe("dose scheduling cron", () => {
     expect(list).toHaveBeenCalledWith(expect.objectContaining({ cursor: "second-page" }));
     expect(await listDoses("org1", env, RANGE)).toHaveLength(3);
     expect(await listDoses("org2", env, RANGE)).toHaveLength(3);
+  });
+
+  it("reconciles stock projections on the next minute after a transient KV failure", async () => {
+    await medication("org1", "med-1");
+    await worker.scheduled(event("* * * * *"), env);
+    const [dose] = await listDoses("org1", env, RANGE);
+    vi.spyOn(env.ASSETS, "put").mockRejectedValueOnce(new Error("KV temporarily unavailable"));
+    await expect(setDoseStatus("org1", env, dose.id, "taken", "web"))
+      .rejects.toThrow("KV temporarily unavailable");
+    expect((await getAsset(env.ASSETS, "org1", "med-1"))?.medication?.stock?.quantity).toBe(10);
+    await worker.scheduled(event("* * * * *"), env);
+    expect((await getAsset(env.ASSETS, "org1", "med-1"))?.medication?.stock?.quantity).toBe(9);
+    expect((await listDoses("org1", env, RANGE))[0].status).toBe("taken");
+    expect(JSON.parse((await env.BATCH_QUEUE.get("org1:batch:pending")) ?? "[]")).toEqual(["med-1"]);
+  });
+
+  it("retries a failed dirty-queue write on the next minute without deducting stock again", async () => {
+    await medication("org1", "med-1");
+    await worker.scheduled(event("* * * * *"), env);
+    const [dose] = await listDoses("org1", env, RANGE);
+    vi.spyOn(env.BATCH_QUEUE, "put").mockRejectedValueOnce(new Error("Queue temporarily unavailable"));
+    await expect(setDoseStatus("org1", env, dose.id, "taken", "web"))
+      .rejects.toThrow("Queue temporarily unavailable");
+    expect((await getAsset(env.ASSETS, "org1", "med-1"))?.medication?.stock?.quantity).toBe(9);
+    expect(await env.BATCH_QUEUE.get("org1:batch:pending")).toBeNull();
+    vi.setSystemTime(new Date("2026-03-16T07:01:00.000Z"));
+    await worker.scheduled(event("* * * * *"), env);
+    expect((await getAsset(env.ASSETS, "org1", "med-1"))?.medication?.stock?.quantity).toBe(9);
+    expect(await env.DB.prepare(
+      "SELECT quantity FROM medication_stock WHERE org_id = ? AND record_id = ?"
+    ).bind("org1", "med-1").first("quantity")).toBe(9);
+    expect(JSON.parse((await env.BATCH_QUEUE.get("org1:batch:pending")) ?? "[]")).toEqual(["med-1"]);
+  });
+
+  it("does not rewrite successfully projected medication stock or its queue on repeated minute crons", async () => {
+    await medication("org1", "med-1");
+    await worker.scheduled(event("* * * * *"), env);
+    const [dose] = await listDoses("org1", env, RANGE);
+    await setDoseStatus("org1", env, dose.id, "taken", "web");
+    const asset = await env.ASSETS.get("org1:asset:med-1");
+    const pending = await env.BATCH_QUEUE.get("org1:batch:pending");
+    const assetPut = vi.spyOn(env.ASSETS, "put");
+    const queuePut = vi.spyOn(env.BATCH_QUEUE, "put");
+    vi.setSystemTime(new Date("2026-03-16T07:01:00.000Z"));
+    await worker.scheduled(event("* * * * *"), env);
+    vi.setSystemTime(new Date("2026-03-16T07:02:00.000Z"));
+    await worker.scheduled(event("* * * * *"), env);
+    expect(assetPut).not.toHaveBeenCalled();
+    expect(queuePut).not.toHaveBeenCalled();
+    expect(await env.ASSETS.get("org1:asset:med-1")).toBe(asset);
+    expect(await env.BATCH_QUEUE.get("org1:batch:pending")).toBe(pending);
   });
 
   it("keeps batch processing on the five-minute cron without materializing doses", async () => {
