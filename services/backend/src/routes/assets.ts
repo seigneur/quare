@@ -1,6 +1,7 @@
 import { getAsset, putAsset, listAssets, type AssetMeta } from "../services/assetStore.js";
 import { corsHeaders } from "../utils/cors.js";
 import { verifyAdminKey } from "./admin.js";
+import type { MedicationColor, MedicationDetails } from "../services/medicationTypes.js";
 
 interface Env {
   CONTRACT_ADDRESS: string;
@@ -18,6 +19,91 @@ function unauthorized(env: Env): Response {
   });
 }
 
+function validateMedication(value: unknown): string | null {
+  if (!value || typeof value !== "object") return "medication must be an object";
+  const medication = value as Partial<MedicationDetails>;
+  if (typeof medication.dosage !== "string" || !medication.dosage.trim()) {
+    return "medication dosage is required";
+  }
+  if (typeof medication.recipientId !== "string" || !medication.recipientId.trim()) {
+    return "medication recipientId is required";
+  }
+  if (typeof medication.form !== "string" || !medication.form.trim()) {
+    return "medication form is required";
+  }
+  const colors: MedicationColor[] = [
+    "red", "orange", "yellow", "green", "teal", "blue", "purple", "pink",
+  ];
+  if (!medication.color || !colors.includes(medication.color)) {
+    return "medication color must be a valid medication color";
+  }
+  const isValidDate = (date: unknown): date is string => {
+    if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+    const parsed = new Date(`${date}T00:00:00.000Z`);
+    return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date;
+  };
+  if (!isValidDate(medication.startDate)) {
+    return "medication startDate must use YYYY-MM-DD format";
+  }
+  if (medication.endDate !== undefined && !isValidDate(medication.endDate)) {
+    return "medication endDate must use YYYY-MM-DD format";
+  }
+  if (typeof medication.active !== "boolean") return "medication active is required";
+  if (!medication.schedule || typeof medication.schedule !== "object") {
+    return "medication schedule is required";
+  }
+  if (!["daily", "weekdays", "interval"].includes(medication.schedule.type)) {
+    return "medication schedule type must be daily, weekdays, or interval";
+  }
+  if (
+    medication.schedule.type === "interval" &&
+    (typeof medication.schedule.intervalHours !== "number" ||
+      !Number.isFinite(medication.schedule.intervalHours) ||
+      medication.schedule.intervalHours <= 0)
+  ) {
+    return "medication intervalHours must be a positive number for interval schedules";
+  }
+  if (
+    medication.schedule.days !== undefined &&
+    (!Array.isArray(medication.schedule.days) ||
+      medication.schedule.days.some((day) => !Number.isInteger(day) || day < 0 || day > 6))
+  ) {
+    return "medication schedule days must be integers from 0 to 6";
+  }
+  if (!Array.isArray(medication.schedule.times) || medication.schedule.times.length === 0) {
+    return "medication schedule must include at least one time";
+  }
+  if (medication.schedule.times.some(
+    (time) => typeof time !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)
+  )) {
+    return "medication schedule times must use HH:mm format";
+  }
+  if (medication.stock !== undefined) {
+    if (!medication.stock || typeof medication.stock !== "object" || Array.isArray(medication.stock)) {
+      return "medication stock must be an object";
+    }
+    if (
+      typeof medication.stock.quantity !== "number" ||
+      !Number.isFinite(medication.stock.quantity) ||
+      medication.stock.quantity < 0
+    ) {
+      return "medication stock quantity must be a number of 0 or more";
+    }
+    if (typeof medication.stock.unit !== "string" || !medication.stock.unit.trim()) {
+      return "medication stock unit must be a non-empty string";
+    }
+  }
+  if (typeof medication.timezone !== "string" || !medication.timezone) {
+    return "medication timezone is required";
+  }
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: medication.timezone });
+  } catch {
+    return "medication timezone must be a valid IANA timezone";
+  }
+  return null;
+}
+
 export async function handleAssets(
   request: Request,
   env: Env,
@@ -30,7 +116,9 @@ export async function handleAssets(
   const orgOnlyMatch = pathname.match(/^\/assets\/([^/]+)$/);
   if (request.method === "GET" && orgOnlyMatch) {
     const orgId = orgOnlyMatch[1];
-    const assets = await listAssets(env.ASSETS, orgId);
+    const isAdmin = verifyAdminKey(request, env.ADMIN_KEY);
+    const assets = (await listAssets(env.ASSETS, orgId))
+      .filter((asset) => isAdmin || (asset.kind !== "medication" && !asset.medication));
     return new Response(JSON.stringify(assets), { status: 200, headers: jsonHeaders });
   }
 
@@ -42,6 +130,25 @@ export async function handleAssets(
       body = await request.json();
     } catch {
       return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400, headers });
+    }
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return new Response(JSON.stringify({ error: "Invalid asset" }), { status: 400, headers });
+    }
+    if (body.kind !== undefined && body.kind !== "generic" && body.kind !== "medication") {
+      return new Response(JSON.stringify({ error: "kind must be generic or medication" }), {
+        status: 400,
+        headers,
+      });
+    }
+
+    if (body.kind === "medication" && !verifyAdminKey(request, env.ADMIN_KEY)) {
+      return unauthorized(env);
+    }
+    if (body.kind === "medication") {
+      const error = validateMedication(body.medication);
+      if (error) return new Response(JSON.stringify({ error }), { status: 400, headers });
+    } else {
+      delete body.medication;
     }
 
     const now = new Date().toISOString();
@@ -66,6 +173,12 @@ export async function handleAssets(
     if (!asset) {
       return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers });
     }
+    if (
+      (asset.kind === "medication" || asset.medication) &&
+      !verifyAdminKey(request, env.ADMIN_KEY)
+    ) {
+      return unauthorized(env);
+    }
     return new Response(JSON.stringify(asset), { status: 200, headers: jsonHeaders });
   }
 
@@ -76,12 +189,18 @@ export async function handleAssets(
     if (!existing) {
       return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers });
     }
+    if (existing.kind === "medication" && !verifyAdminKey(request, env.ADMIN_KEY)) {
+      return unauthorized(env);
+    }
 
     let body: Partial<AssetMeta>;
     try {
       body = await request.json();
     } catch {
       return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400, headers });
+    }
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return new Response(JSON.stringify({ error: "Invalid asset" }), { status: 400, headers });
     }
 
     const updated: AssetMeta = {
@@ -92,6 +211,24 @@ export async function handleAssets(
       createdAt: existing.createdAt,
       updatedAt: new Date().toISOString(),
     };
+    if (
+      updated.kind === "medication" &&
+      !verifyAdminKey(request, env.ADMIN_KEY)
+    ) {
+      return unauthorized(env);
+    }
+    if (updated.kind !== undefined && updated.kind !== "generic" && updated.kind !== "medication") {
+      return new Response(JSON.stringify({ error: "kind must be generic or medication" }), {
+        status: 400,
+        headers,
+      });
+    }
+    if (updated.kind === "medication") {
+      const error = validateMedication(updated.medication);
+      if (error) return new Response(JSON.stringify({ error }), { status: 400, headers });
+    } else {
+      delete updated.medication;
+    }
     await putAsset(env.ASSETS, env.BATCH_QUEUE, updated);
     return new Response(JSON.stringify(updated), { status: 200, headers: jsonHeaders });
   }

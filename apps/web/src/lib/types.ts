@@ -19,7 +19,6 @@ export interface Medication {
   form: string;
   instructions?: string;
   color: MedicationColor;
-  icon?: string;
   scheduleType: ScheduleType;
   scheduleTimes: string[];
   scheduleDays?: number[];

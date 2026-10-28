@@ -1,6 +1,7 @@
 import { spawn, execSync, type ChildProcess } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createWalletClient, createPublicClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -42,7 +43,7 @@ function waitForAnvil(): Promise<void> {
 async function deployContract(): Promise<string> {
   // Build the contract (requires forge in PATH)
   try {
-    const foundryBin = process.env.FOUNDRY_BIN ?? "/home/nanoclaw/.foundry/bin";
+    const foundryBin = process.env.FOUNDRY_BIN ?? join(homedir(), ".foundry", "bin");
     execSync("forge build", {
       cwd: CONTRACT_DIR,
       stdio: "pipe",
@@ -84,7 +85,7 @@ async function deployContract(): Promise<string> {
 
 export async function setup() {
   // Spawn anvil with Base's chain ID so viem's `base` chain validates
-  const foundryBin = process.env.FOUNDRY_BIN ?? "/home/nanoclaw/.foundry/bin";
+  const foundryBin = process.env.FOUNDRY_BIN ?? join(homedir(), ".foundry", "bin");
   const spawnEnv = { ...process.env, PATH: `${foundryBin}:${process.env.PATH}` };
   anvilProcess = spawn(
     `${foundryBin}/anvil`,

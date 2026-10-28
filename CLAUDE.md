@@ -67,21 +67,24 @@ The worker is the single coordinator between three storage layers:
 **Route handlers:**
 - `src/routes/admin.ts` — `POST /admin/records` (store salt+iv), `POST /admin/records/:id/revoke`, `GET /admin/records/:id`
 - `src/routes/assets.ts` — `GET/POST /assets/:orgId`, `GET/PATCH/DELETE /assets/:orgId/:recordId`, `GET /assets/:orgId/:recordId/proof`
+- `src/routes/medications.ts` — `GET /api/medications/:orgId` (optional `recipientId` filter), `GET /api/medications/:orgId/:recordId`, and static `GET .../explain`
+- `src/routes/recipients.ts` — `GET/POST /api/recipients/:orgId`, `GET/PATCH /api/recipients/:orgId/:id` (all routes require `X-Admin-Key`)
 - `src/routes/batch.ts` — `POST /batch/:orgId/process`, `GET /batch/:orgId/pending`, `GET /batch/:orgId/checkpoints`
 - `src/routes/pin.ts` — `POST /pin/verify`
 - `src/routes/files.ts` — `GET /files/:cid`
 
-**Asset shape** (`src/services/assetStore.ts` — `AssetMeta`): `recordId`, `orgId`, `name`, `status` (Deployed/In use/Maintenance/Spare/Disposed), `location`, `assignee`, `category`, `fields` (Record), `files` (array with name/cid/encrypted/size), `createdAt`, `updatedAt`, `ipfsCID?`.
+**Asset shape** (`src/services/assetStore.ts` — `AssetMeta`): `recordId`, `orgId`, `name`, `status` (Deployed/In use/Maintenance/Spare/Disposed), `location`, `assignee`, `category`, `fields` (Record), `files` (array with name/cid/encrypted/size), `kind?` (generic by default or medication), `medication?` (`MedicationDetails`), `createdAt`, `updatedAt`, `ipfsCID?`. Medication assets use the same KV, IPFS, batch queue, and Merkle flow as other assets.
 
 **KV key namespacing:**
 - `{orgId}:asset:{recordId}` — asset JSON in ASSETS
+- `{orgId}:recipient:{id}` — recipient JSON in ASSETS
 - `{orgId}:batch:pending` — JSON array of dirty recordIds in BATCH_QUEUE
 - `{orgId}:proof:{recordId}` — Merkle sibling proof array in ASSETS
 - `secrets:{recordId}` — `{salt, iv}` JSON in RECORD_SECRETS
 
 **Batch flow** (`src/services/batchProcessor.ts`):
 1. Reads pending dirty recordIds from BATCH_QUEUE
-2. Lists all org assets; re-uploads IPFS snapshot for any asset missing a CID **or** in the dirty set (ensures PATCH changes are reflected)
+2. Lists all org assets; re-uploads IPFS snapshot for any asset missing a CID **or** in the dirty set (ensures PATCH changes are reflected). Generic assets upload their full snapshot; medication assets upload only `{recordId, orgId, kind, updatedAt, contentHash}` so health data is not published.
 3. Builds a SHA-256 binary Merkle tree over all org assets (`src/services/merkle.ts`)
 4. Stores per-asset sibling proofs back into ASSETS KV
 5. Uploads a full tree snapshot to IPFS → `metaCID`
@@ -93,6 +96,7 @@ The worker is the single coordinator between three storage layers:
 **Secrets — what goes where:**
 - `DEPLOYER_PRIVATE_KEY` — wrangler secret only, never in wrangler.toml
 - `ADMIN_KEY`, `W3UP_TOKEN` — wrangler secrets (empty placeholder in wrangler.toml vars is overridden by the secret in prod)
+- Medication snapshot salts — stored in `RECORD_SECRETS` at `secrets:med:{orgId}:{recordId}` and reused to salt a SHA-256 hash of the stable full medication asset JSON; separate from PIN-flow `secrets:{recordId}` entries.
 - KV namespace IDs — fill in wrangler.toml after running `wrangler kv:namespace create`
 
 ### Contract (`services/contract/FileRegistry.sol`)
@@ -112,7 +116,10 @@ Two pages:
 - `/admin` — super-admin panel (client component): admin key stored in `localStorage`, calls `src/lib/admin-api.ts` which sends `X-Admin-Key` header, renders QR codes via `react-qr-code`, supports print-to-PDF QR sheets via `window.print()` with `@media print` CSS isolation
 
 `NEXT_PUBLIC_API_URL` — points to the deployed Worker URL.
+`NEXT_PUBLIC_ORG_ID` — selects the organization for the caregiver medication and recipient pages.
 `NEXT_PUBLIC_APP_URL` — used to generate QR scan deep-link URLs (`{APP_URL}/scan?id={recordId}`).
+
+For development data, `scripts/seed-medications.ts` posts the sample recipients and medications to the API. Set `API_URL`, `ORG_ID`, and `ADMIN_KEY` (or their `NEXT_PUBLIC_*` API/org equivalents), then run `node --experimental-strip-types scripts/seed-medications.ts`.
 
 ### iOS (`apps/ios/`)
 
@@ -120,7 +127,7 @@ Two pages:
 
 ### Admin auth pattern
 
-`verifyAdminKey` (exported from `src/routes/admin.ts`) does a timing-safe string comparison against `env.ADMIN_KEY`. All write-capable and sensitive routes (`DELETE /assets`, all `/batch/*`, all `/admin/*`) require the `X-Admin-Key` request header.
+`verifyAdminKey` (exported from `src/routes/admin.ts`) does a timing-safe string comparison against `env.ADMIN_KEY`. All write-capable and sensitive routes (`DELETE /assets`, all `/batch/*`, all `/admin/*`, and all `/api/medications/*` and `/api/recipients/*`) require the `X-Admin-Key` request header. Medication assets on `/assets/*` require the key for creation, updates, and direct reads; unauthenticated asset lists omit medications, while generic asset behavior remains public.
 
 ## Testing
 

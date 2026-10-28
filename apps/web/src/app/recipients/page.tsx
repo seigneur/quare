@@ -70,7 +70,6 @@ export default function RecipientsPage() {
           </div>
         )}
 
-        {/* TODO: Add recipient form — requires backend POST /api/recipients */}
         <p className="text-gray-600 text-xs text-center mt-8">
           Adding and editing recipients coming soon.
         </p>

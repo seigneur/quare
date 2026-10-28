@@ -1,26 +1,17 @@
 import { MemoryKV } from "./kv.js";
+import type { Env } from "../../src/index.js";
 
-export interface TestEnv {
-  CONTRACT_ADDRESS: string;
-  CHAIN_RPC_URL: string;
-  ALLOWED_ORIGINS: string;
-  ADMIN_KEY: string;
-  RECORD_SECRETS: MemoryKV;
-  ASSETS: MemoryKV;
-  BATCH_QUEUE: MemoryKV;
-  W3UP_TOKEN: string;
-  DEPLOYER_PRIVATE_KEY: string;
-}
+export type TestEnv = Env;
 
-export function makeEnv(overrides: Partial<TestEnv> = {}): TestEnv {
+export function makeEnv(overrides: Partial<Env> = {}): Env {
   return {
     CONTRACT_ADDRESS: process.env.TEST_CONTRACT_ADDRESS ?? "",
     CHAIN_RPC_URL: process.env.TEST_RPC_URL ?? "http://127.0.0.1:8545",
     ALLOWED_ORIGINS: "*",
     ADMIN_KEY: "test-admin-key",
-    RECORD_SECRETS: new MemoryKV(),
-    ASSETS: new MemoryKV(),
-    BATCH_QUEUE: new MemoryKV(),
+    RECORD_SECRETS: new MemoryKV() as unknown as Env["RECORD_SECRETS"],
+    ASSETS: new MemoryKV() as unknown as Env["ASSETS"],
+    BATCH_QUEUE: new MemoryKV() as unknown as Env["BATCH_QUEUE"],
     W3UP_TOKEN: "test-w3up-token",
     DEPLOYER_PRIVATE_KEY: process.env.TEST_DEPLOYER_KEY ?? "",
     ...overrides,

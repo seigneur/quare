@@ -1,6 +1,6 @@
 import { corsHeaders } from "../utils/cors.js";
-import { getDosesWithOverrides, overrideDoseStatus } from "../services/mockData.js";
-import type { DoseStatus } from "../services/mockData.js";
+import { getDosesWithOverrides, overrideDoseStatus } from "../services/doseMock.js";
+import type { DoseStatus } from "../services/medicationTypes.js";
 import type { Env } from "../index.js";
 
 const VALID_STATUSES: DoseStatus[] = ["pending", "taken", "missed", "skipped", "rescheduled"];

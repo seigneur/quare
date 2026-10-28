@@ -1,6 +1,7 @@
 import { vi } from "vitest";
 
 let cidCounter = 0;
+let uploadBodies: string[] = [];
 
 /**
  * Intercepts fetch calls to https://up.web3.storage and returns a fake CID.
@@ -12,6 +13,7 @@ let cidCounter = 0;
 export function installFetchMock() {
   const originalFetch = globalThis.fetch;
   cidCounter = 0;
+  uploadBodies = [];
 
   vi.stubGlobal(
     "fetch",
@@ -27,6 +29,7 @@ export function installFetchMock() {
             : (input as Request).url;
 
       if (url === "https://up.web3.storage") {
+        uploadBodies.push(String(init?.body ?? ""));
         cidCounter++;
         const cid = `bafytest${String(cidCounter).padStart(4, "0")}`;
         return new Response(JSON.stringify({ cid }), {
@@ -42,5 +45,9 @@ export function installFetchMock() {
   return {
     restore: () => vi.unstubAllGlobals(),
     lastCid: () => `bafytest${String(cidCounter).padStart(4, "0")}`,
+    uploadedBodies: () => [...uploadBodies],
+    clearUploads: () => {
+      uploadBodies = [];
+    },
   };
 }
