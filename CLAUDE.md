@@ -100,7 +100,7 @@ Materialization also removes obsolete future pending occurrences within its hori
 4. Stores per-asset sibling proofs back into ASSETS KV
 5. Uploads a full tree snapshot to IPFS → `metaCID`
 6. Calls `updateRoot(orgId, root, metaCID, assetCount)` on-chain via viem `walletClient`
-7. Clears the pending queue
+7. Waits for a successful transaction receipt before clearing the pending queue; reverted transactions or receipt lookup failures leave the queue available for retry
 
 **Merkle tree** (`src/services/merkle.ts`): pure Web Crypto SHA-256, no npm libraries. Leaf = `SHA256("${recordId}:${ipfsCID}")`. Pair hash = `SHA256(sort(a,b) concatenated as bytes)`. Odd-count levels duplicate the last leaf. The on-chain `verify()` in the contract uses keccak256 — the worker-built SHA-256 roots are stored as the bytes32 value but are not verifiable via the Solidity `MerkleProof.verify()` without a matching off-chain verifier.
 

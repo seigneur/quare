@@ -31,6 +31,10 @@ export async function authenticateToken(
   if (scheme.toLowerCase() !== "bearer" || !token || extra || token.length > 512) return null;
   const value = await secrets.get(`mcp:token:${await hashToken(token)}`);
   if (!value) return null;
-  const parsed = tokenGrantSchema.safeParse(JSON.parse(value) as unknown);
-  return parsed.success ? parsed.data : null;
+  try {
+    const parsed = tokenGrantSchema.safeParse(JSON.parse(value) as unknown);
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
 }

@@ -154,6 +154,24 @@ describe("/mcp", () => {
     }
   });
 
+  it.each([
+    ["malformed JSON", "{"],
+    ["invalid grant shape", JSON.stringify({ orgId: "orgA", scopes: ["admin"] })],
+    ["null grant", "null"],
+  ])("returns 401 for a stored token with %s", async (_description, value) => {
+    await env.RECORD_SECRETS.put(`mcp:token:${credentials.tokenId}`, value);
+    const response = await worker.fetch(req("POST", "/mcp", {
+      jsonrpc: "2.0", id: 1, method: "tools/list",
+    }, {
+      Authorization: ["Bearer", credentials.token].join(" "),
+      Accept: "application/json, text/event-stream",
+    }), env);
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("WWW-Authenticate")).toBe("Bearer");
+    expect(await response.json()).toEqual({ error: "Unauthorized" });
+  });
+
   it("enforces read/write scopes for every tool", async () => {
     const readOnly = await token("orgA", ["read"]);
     const writeOnly = await token("orgA", ["write"]);
