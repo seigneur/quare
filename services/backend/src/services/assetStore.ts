@@ -46,14 +46,20 @@ export async function listAssets(
   assets: KVNamespace,
   orgId: string
 ): Promise<AssetMeta[]> {
-  const list = await assets.list({ prefix: `${orgId}:asset:` });
-  const results = await Promise.all(
-    list.keys.map(async (k) => {
-      const value = await assets.get(k.name);
-      return value ? (JSON.parse(value) as AssetMeta) : null;
-    })
-  );
-  return results.filter((a): a is AssetMeta => a !== null);
+  const results: AssetMeta[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await assets.list({ prefix: `${orgId}:asset:`, cursor });
+    const values = await Promise.all(
+      page.keys.map(async (key) => {
+        const value = await assets.get(key.name);
+        return value ? JSON.parse(value) as AssetMeta : null;
+      })
+    );
+    results.push(...values.filter((asset): asset is AssetMeta => asset !== null));
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  return results;
 }
 
 export async function getPendingBatch(

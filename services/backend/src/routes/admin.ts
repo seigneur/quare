@@ -22,7 +22,7 @@ function timingSafeEqual(a: string, b: string): boolean {
 
 export function verifyAdminKey(request: Request, adminKey: string): boolean {
   const provided = request.headers.get("X-Admin-Key") ?? "";
-  return timingSafeEqual(provided, adminKey);
+  return adminKey.length > 0 && timingSafeEqual(provided, adminKey);
 }
 
 function unauthorized(env: Env): Response {

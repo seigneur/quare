@@ -6,10 +6,12 @@ import { handleAssets } from "./routes/assets.js";
 import { handleBatch } from "./routes/batch.js";
 import { processBatch } from "./services/batchProcessor.js";
 import { handleMedications } from "./routes/medications.js";
-import { handleDoses } from "./routes/doses.js";
+import { handleDoses, handleAdherence } from "./routes/doses.js";
 import { handleRecipients } from "./routes/recipients.js";
+import { materializeDoses, markMissed, reconcileStock } from "./services/doseStore.js";
 
 export interface Env {
+  DB: D1Database;
   CONTRACT_ADDRESS: string;
   CHAIN_RPC_URL: string;
   ALLOWED_ORIGINS: string;
@@ -43,6 +45,10 @@ export default {
     // /api/doses/* routes
     if (pathname.startsWith("/api/doses")) {
       return handleDoses(request, env, pathname);
+    }
+
+    if (pathname.startsWith("/api/adherence")) {
+      return handleAdherence(request, env, pathname);
     }
 
     // /api/recipients routes
@@ -82,7 +88,19 @@ export default {
     });
   },
 
-  async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
+  async scheduled(event: ScheduledEvent, env: Env): Promise<void> {
+    if (event.cron === "* * * * *") {
+      const { results } = await env.DB.prepare(
+        "SELECT org_id FROM medication_orgs"
+      ).all<{ org_id: string }>();
+      for (const { org_id: orgId } of results) {
+        await materializeDoses(orgId, env);
+        await markMissed(orgId, env);
+        await reconcileStock(orgId, env);
+      }
+      return;
+    }
+    if (event.cron !== "*/5 * * * *") return;
     const result = await env.BATCH_QUEUE.list();
     const orgIds = [
       ...new Set(

@@ -1,4 +1,5 @@
 import { MemoryKV } from "./kv.js";
+import { SQLiteD1 } from "./d1.js";
 import type { Env } from "../../src/index.js";
 
 export type TestEnv = Env;
@@ -12,6 +13,7 @@ export function makeEnv(overrides: Partial<Env> = {}): Env {
     RECORD_SECRETS: new MemoryKV() as unknown as Env["RECORD_SECRETS"],
     ASSETS: new MemoryKV() as unknown as Env["ASSETS"],
     BATCH_QUEUE: new MemoryKV() as unknown as Env["BATCH_QUEUE"],
+    DB: overrides.DB ?? (new SQLiteD1() as unknown as Env["DB"]),
     W3UP_TOKEN: "test-w3up-token",
     DEPLOYER_PRIVATE_KEY: process.env.TEST_DEPLOYER_KEY ?? "",
     ...overrides,
