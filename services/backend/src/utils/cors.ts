@@ -2,7 +2,7 @@ export function corsHeaders(allowedOrigins: string): HeadersInit {
   return {
     "Access-Control-Allow-Origin": allowedOrigins,
     "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-Admin-Key",
+    "Access-Control-Allow-Headers": "Content-Type, X-Admin-Key, Authorization, MCP-Protocol-Version, MCP-Session-Id",
   };
 }
 

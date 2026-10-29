@@ -1,8 +1,8 @@
-import { getAsset, putAsset, listAssets, type AssetMeta } from "../services/assetStore.js";
+import { getAsset, listAssets, type AssetMeta } from "../services/assetStore.js";
 import { corsHeaders } from "../utils/cors.js";
 import { verifyAdminKey } from "./admin.js";
 import type { MedicationColor, MedicationDetails } from "../services/medicationTypes.js";
-import { materializeDoses, reconcileStock, resetMedicationStock } from "../services/doseStore.js";
+import { saveAsset } from "../services/assetMutations.js";
 
 interface Env {
   DB: D1Database;
@@ -161,13 +161,7 @@ export async function handleAssets(
       createdAt: now,
       updatedAt: now,
     };
-    if (asset.kind === "medication") {
-      await env.DB.prepare(
-        "INSERT OR IGNORE INTO medication_orgs (org_id) VALUES (?)"
-      ).bind(orgId).run();
-    }
-    await putAsset(env.ASSETS, env.BATCH_QUEUE, asset);
-    if (asset.kind === "medication") await resetMedicationStock(asset, env.DB);
+    await saveAsset(env, asset);
     return new Response(JSON.stringify(asset), { status: 201, headers: jsonHeaders });
   }
 
@@ -242,32 +236,7 @@ export async function handleAssets(
     } else {
       delete updated.medication;
     }
-    if (updated.kind === "medication") {
-      await env.DB.prepare(
-        "INSERT OR IGNORE INTO medication_orgs (org_id) VALUES (?)"
-      ).bind(orgId).run();
-    }
-    await putAsset(env.ASSETS, env.BATCH_QUEUE, updated);
-    let responseAsset = updated;
-    if (existing.kind === "medication" || updated.kind === "medication") {
-      if (updated.kind !== "medication" ||
-        updated.medication?.stock?.quantity !== existing.medication?.stock?.quantity) {
-        await resetMedicationStock(updated, env.DB);
-      } else {
-        await reconcileStock(orgId, env, recordId);
-        responseAsset = await getAsset(env.ASSETS, orgId, recordId) ?? updated;
-      }
-      const before = existing.medication;
-      const after = updated.medication;
-      if (existing.kind !== updated.kind ||
-        (existing.status === "Disposed") !== (updated.status === "Disposed") ||
-        before?.active !== after?.active || before?.recipientId !== after?.recipientId ||
-        before?.startDate !== after?.startDate || before?.endDate !== after?.endDate ||
-        before?.timezone !== after?.timezone ||
-        JSON.stringify(before?.schedule) !== JSON.stringify(after?.schedule)) {
-        await materializeDoses(orgId, env);
-      }
-    }
+    const responseAsset = await saveAsset(env, updated, existing);
     return new Response(JSON.stringify(responseAsset), { status: 200, headers: jsonHeaders });
   }
 

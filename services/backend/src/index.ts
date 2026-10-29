@@ -9,6 +9,7 @@ import { handleMedications } from "./routes/medications.js";
 import { handleDoses, handleAdherence } from "./routes/doses.js";
 import { handleRecipients } from "./routes/recipients.js";
 import { materializeDoses, markMissed, reconcileStock } from "./services/doseStore.js";
+import { handleMcp } from "./routes/mcp.js";
 
 export interface Env {
   DB: D1Database;
@@ -21,6 +22,7 @@ export interface Env {
   BATCH_QUEUE: KVNamespace;
   W3UP_TOKEN: string;
   DEPLOYER_PRIVATE_KEY: string;
+  APP_URL?: string;
 }
 
 export default {
@@ -31,6 +33,8 @@ export default {
     const url = new URL(request.url);
     const { pathname } = url;
     const { method } = request;
+
+    if (pathname === "/mcp") return handleMcp(request, env);
 
     // GET /api/health
     if (method === "GET" && pathname === "/api/health") {

@@ -1,4 +1,4 @@
-import { createWalletClient, http } from "viem";
+import { createPublicClient, createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
 import { ABI } from "./chain.js";
@@ -63,12 +63,19 @@ export async function processBatch(
     transport: http(env.CHAIN_RPC_URL),
   });
 
-  await walletClient.writeContract({
+  const hash = await walletClient.writeContract({
     address: env.CONTRACT_ADDRESS as `0x${string}`,
     abi: ABI,
     functionName: "updateRoot",
     args: [orgId, leafToBytes32(root), metaCID, BigInt(assets.length)],
   });
+
+  const publicClient = createPublicClient({
+    chain: base,
+    transport: http(env.CHAIN_RPC_URL),
+  });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== "success") throw new Error("Batch root transaction reverted");
 
   await clearPendingBatch(env.BATCH_QUEUE, orgId);
 

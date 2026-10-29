@@ -2,6 +2,7 @@ import { corsHeaders } from "../utils/cors.js";
 import { verifyAdminKey } from "./admin.js";
 import type { CareRecipient } from "../services/medicationTypes.js";
 import type { Env } from "../index.js";
+import { addRecipient, listRecipients } from "../services/recipientStore.js";
 
 export async function handleRecipients(
   request: Request,
@@ -16,14 +17,7 @@ export async function handleRecipients(
   if (request.method === "GET" && orgMatch) {
     if (!verifyAdminKey(request, env.ADMIN_KEY)) return unauthorized();
     const orgId = orgMatch[1];
-    const result = await env.ASSETS.list({ prefix: `${orgId}:recipient:` });
-    const recipients = await Promise.all(
-      result.keys.map(async ({ name }) => {
-        const value = await env.ASSETS.get(name);
-        return value ? (JSON.parse(value) as CareRecipient) : null;
-      })
-    );
-    return Response.json(recipients.filter((recipient): recipient is CareRecipient => recipient !== null), {
+    return Response.json(await listRecipients(env.ASSETS, orgId), {
       headers,
     });
   }
@@ -52,17 +46,15 @@ export async function handleRecipients(
     }
 
     const orgId = orgMatch[1];
-    const recipient: CareRecipient = {
-      id: body.id ?? crypto.randomUUID(),
+    const recipient = await addRecipient(env.ASSETS, orgId, {
+      id: body.id,
       name: body.name,
       ...(body.dateOfBirth !== undefined ? { dateOfBirth: body.dateOfBirth } : {}),
       ...(body.notes !== undefined ? { notes: body.notes } : {}),
-    };
-    const key = `${orgId}:recipient:${recipient.id}`;
-    if (await env.ASSETS.get(key)) {
+    });
+    if (!recipient) {
       return Response.json({ error: "Recipient already exists" }, { status: 409, headers });
     }
-    await env.ASSETS.put(key, JSON.stringify(recipient));
     return Response.json(recipient, { status: 201, headers });
   }
 

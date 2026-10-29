@@ -9,6 +9,7 @@ CHAIN_RPC_URL = ""
 ALLOWED_ORIGINS = "*"
 ADMIN_KEY = ""
 W3UP_TOKEN = ""
+APP_URL = ""
 
 [triggers]
 crons = ["*/5 * * * *", "* * * * *"]

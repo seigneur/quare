@@ -66,6 +66,7 @@ The worker coordinates mutable records, dose history, and immutable verification
 **Request routing** (`src/index.ts`): pathname-prefix dispatch — `/admin/*`, `/assets/*`, `/batch/*`, `/api/*`, `/pin/verify`, `/files/:cid`. The `*/5 * * * *` cron keeps processing `BATCH_QUEUE` through `processBatch`. The `* * * * *` cron reads organizations from the D1 `medication_orgs` index, materializes the next 36 hours of doses, and marks pending doses missed after a 60-minute grace period. Medication creates and PATCHes register their organization idempotently before writing KV; the cron never lists unprefixed `ASSETS` keys. Index entries are retained after medication deletion so dose history and missed marking remain available.
 
 **Route handlers:**
+- `src/routes/mcp.ts` — stateless `POST /mcp` using `@modelcontextprotocol/sdk`'s Web Standard Streamable HTTP transport (JSON responses, no Durable Objects). Access tokens are SHA-256-hashed in `RECORD_SECRETS` at `mcp:token:{hash}` and map to `{orgId, scopes}` (`read`/`write`). Admin-authenticated `POST/DELETE /admin/mcp-tokens` create/revoke credentials. Every tool uses the token's fixed organization; no organization argument is accepted.
 - `src/routes/admin.ts` — `POST /admin/records` (store salt+iv), `POST /admin/records/:id/revoke`, `GET /admin/records/:id`
 - `src/routes/assets.ts` — `GET/POST /assets/:orgId`, `GET/PATCH/DELETE /assets/:orgId/:recordId`, `GET /assets/:orgId/:recordId/proof`
 - `src/routes/medications.ts` — `GET /api/medications/:orgId` (optional `recipientId` filter), `GET /api/medications/:orgId/:recordId`, and static `GET .../explain`
@@ -90,6 +91,8 @@ Create a D1 database, fill the `DB` binding's `database_id` in `services/backend
 
 Materialization also removes obsolete future pending occurrences within its horizon. Medication schedule, recipient, active-state, and disposal edits immediately refresh that horizon; deletion removes future pending doses. Past occurrences and already recorded statuses remain intact.
 
+**MCP tools** (`src/services/mcpTools.ts`): Zod-validated recipient listing/creation, bulk medication creation, update/deactivate, routine replacement, pending-dose queries, dose logging (source `mcp`, by ID or nearest pending name/time), adherence, and refill status. REST and MCP share `assetMutations.saveAsset`/`saveNewAssets` for medication organization registration, stock synchronization, schedule refresh, KV persistence, and Merkle batch queuing, plus `recipientStore` for recipient listing/creation and the existing dose services. Bulk additions merge all successfully persisted IDs into the batch queue with one write. Schedule edits remove all future pending doses for the changed medication before refreshing the default horizon, including doses previously materialized by longer MCP queries. `APP_URL` configures returned `{APP_URL}/scan?id={recordId}` links. See `docs/mcp.md` for scopes, client setup, schemas, and examples.
+
 **Batch flow** (`src/services/batchProcessor.ts`):
 1. Reads pending dirty recordIds from BATCH_QUEUE
 2. Lists all org assets; re-uploads IPFS snapshot for any asset missing a CID **or** in the dirty set (ensures PATCH changes are reflected). Generic assets upload their full snapshot; medication assets upload only `{recordId, orgId, kind, updatedAt, contentHash}` so health data is not published.
@@ -97,7 +100,7 @@ Materialization also removes obsolete future pending occurrences within its hori
 4. Stores per-asset sibling proofs back into ASSETS KV
 5. Uploads a full tree snapshot to IPFS → `metaCID`
 6. Calls `updateRoot(orgId, root, metaCID, assetCount)` on-chain via viem `walletClient`
-7. Clears the pending queue
+7. Waits for a successful transaction receipt before clearing the pending queue; reverted transactions or receipt lookup failures leave the queue available for retry
 
 **Merkle tree** (`src/services/merkle.ts`): pure Web Crypto SHA-256, no npm libraries. Leaf = `SHA256("${recordId}:${ipfsCID}")`. Pair hash = `SHA256(sort(a,b) concatenated as bytes)`. Odd-count levels duplicate the last leaf. The on-chain `verify()` in the contract uses keccak256 — the worker-built SHA-256 roots are stored as the bytes32 value but are not verifiable via the Solidity `MerkleProof.verify()` without a matching off-chain verifier.
 
