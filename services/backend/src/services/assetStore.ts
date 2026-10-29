@@ -42,6 +42,29 @@ export async function putAsset(
   await queue.put(`${asset.orgId}:batch:pending`, JSON.stringify(pending));
 }
 
+export async function putAssets(
+  assets: KVNamespace,
+  queue: KVNamespace,
+  orgId: string,
+  records: AssetMeta[]
+): Promise<void> {
+  if (records.some((asset) => asset.orgId !== orgId)) throw new Error("Organization mismatch");
+  const saved: string[] = [];
+  try {
+    for (const asset of records) {
+      await assets.put(`${orgId}:asset:${asset.recordId}`, JSON.stringify(asset));
+      saved.push(asset.recordId);
+    }
+  } finally {
+    if (saved.length) {
+      const key = `${orgId}:batch:pending`;
+      const raw = await queue.get(key);
+      const pending: string[] = raw ? JSON.parse(raw) as string[] : [];
+      await queue.put(key, JSON.stringify([...new Set([...pending, ...saved])]));
+    }
+  }
+}
+
 export async function listAssets(
   assets: KVNamespace,
   orgId: string

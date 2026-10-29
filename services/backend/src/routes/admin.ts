@@ -1,6 +1,8 @@
 import { makeChainService } from "../services/chain.js";
 import { storeSecrets, getSecrets, deleteSecrets } from "../services/kv.js";
 import { corsHeaders } from "../utils/cors.js";
+import { createToken, tokenGrantSchema } from "../services/mcpTokens.js";
+import { z } from "zod";
 
 interface Env {
   CONTRACT_ADDRESS: string;
@@ -36,6 +38,30 @@ export async function handleAdmin(request: Request, env: Env, pathname: string):
   const headers = corsHeaders(env.ALLOWED_ORIGINS);
 
   if (!verifyAdminKey(request, env.ADMIN_KEY)) return unauthorized(env);
+
+  if (pathname === "/admin/mcp-tokens" &&
+    (request.method === "POST" || request.method === "DELETE")) {
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json({ error: "Invalid JSON" }, { status: 400, headers });
+    }
+    if (request.method === "POST") {
+      const parsed = tokenGrantSchema.safeParse(body);
+      if (!parsed.success) {
+        return Response.json({ error: "orgId and read/write scopes are required" }, { status: 400, headers });
+      }
+      const credentials = await createToken(env.RECORD_SECRETS, parsed.data);
+      return Response.json({ ...credentials, ...parsed.data }, { status: 201, headers });
+    }
+    const parsed = z.strictObject({ tokenId: z.string().regex(/^[a-f0-9]{64}$/) }).safeParse(body);
+    if (!parsed.success) {
+      return Response.json({ error: "tokenId must be a SHA-256 hex hash" }, { status: 400, headers });
+    }
+    await env.RECORD_SECRETS.delete(`mcp:token:${parsed.data.tokenId}`);
+    return Response.json({ revoked: true }, { headers });
+  }
 
   // POST /admin/records/:id/revoke
   const revokeMatch = pathname.match(/^\/admin\/records\/([^/]+)\/revoke$/);
